@@ -132,7 +132,7 @@ end
 def export_to_csv(collection_name)
 	rows = DB[collection_name].find
 
-	fn = "/Users/coopermayne/Code/UCLA/#{collection_name}.csv"
+	fn = "/Users/coopermayne/Code/UCLA_Re/#{collection_name}.csv"
 
 	rowid = 0
 	CSV.open(fn, 'w') do |csv|
@@ -400,4 +400,81 @@ def replace_null_with_error_where_necessary
       "casebody.data.opinions.#{doc['arrIndex']}.author_formatted" => "ERROR"
     }})
   end
+end
+
+
+def fix_authors
+	pipeline = [
+		{
+			'$unwind': {
+				'path': '$casebody.data.opinions',
+        'includeArrayIndex': 'opIndex'
+			}
+		}, {
+			'$group': {
+				'_id': '$casebody.data.opinions.author', 
+				'ops': {
+					'$push': {'_id': '$casebody.data.opinions._id', 'kase_id': '$id', 'opIndex': '$opIndex'}
+				}
+			}
+    }, {
+      '$project': {
+        '_id': {'$ifNull': ['$_id', "xxx"]},
+        'ops': 1,
+        'count': {
+          '$size': '$ops'
+        }
+      }
+    }, {
+      '$sort': {
+        'count': -1
+      }
+    },{
+      '$match': {
+        '_id': { 
+          '$ne': 'xxx'
+        }
+      }
+    }
+  ]
+
+	col = DB[:ALL].aggregate(pipeline)
+
+  #notes: van ==> van Devanter
+  
+  op_grouped_by_judge = []
+  col.each do |group|
+    op_grouped_by_judge << [get_justice_name(group), group['ops']]
+    #judges << get_justice_name(group)
+  end
+
+  op_grouped_by_judge.each do |group|
+    group[1].each do |op|
+      puts op['kase_id']
+      puts op['_id']
+      puts "casebody.data.opinions.#{op['opIndex']}.author_formatted": group[0]
+      #DB[:ALL].update_one( {'id': op['kase_id']}, {'$set': {
+        #"casebody.data.opinions.#{op['opIndex']}.author_formatted" => group[0]
+      #}})
+    end
+  end
+end
+
+def get_justice_name(group)
+  return nil if group['_id'].nil?
+
+  txt = group['_id'].gsub(/[^a-zA-Z\s]/,'').strip.downcase
+
+  match = txt.match /(justice|jjtstice)\s?(?<judge>\w*)/
+
+  if match.nil? 
+    match = txt.match /per\s\w*/
+    judge = "per curium" if match
+  elsif match['judge']==""
+    judge = "chief justice" if txt.match /chief\sjustice$/
+  else
+    judge = match['judge']
+  end
+
+  return judge
 end
