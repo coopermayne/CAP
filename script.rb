@@ -14,6 +14,7 @@ require 'httparty'
 require 'awesome_print'
 require 'ruby-graphviz'
 
+
 HEADERS = {headers: { "Authorization" => "Token #{CAP_API_KEY}" }} #set in keys.rb
 DB = Mongo::Client.new(['127.0.0.1:27017'], :database => 'cases') #set in keys.rb
 COL = :ALL #default collection
@@ -38,97 +39,68 @@ end
 
 #BUILD MODEL SPREADSHEET
 def build_rows(collection_name)
+  collection = DB[:ALL]
   row_collection = DB[collection_name]
   count = 0
 
-	pipeline = [
-		{
-			'$match': {
-				'decision_date': {
-					'$gte': '2003'
-				}
-			}
-		}, {
-			'$unwind': {
-				'path': '$casebody.data.opinions', 
-				'includeArrayIndex': 'opinionsArrayIndex', 
-				'preserveNullAndEmptyArrays': false
-			}
-		}
-	] 
+  collection.find.each {|kase|
+    kase['casebody']['data']['opinions'].each do |op|
+      op_text = op['text']
 
-  DB[:ALL].aggregate(pipeline).each do |opinion|
-		kase = opinion
-    op = opinion['casebody']['data']['opinions']
-    op_text = op['text']
+      diss_matches = op_text.to_enum(:scan, /dissent/).map { Regexp.last_match }
 
-    diss_matches = op_text.to_enum(:scan, /dissent/).map { Regexp.last_match }
+      unless diss_matches.empty?
 
-    next if diss_matches.empty?
+        diss_matches.each do |diss_match|
+          paragraph = op_text[0..diss_match.begin(0)-1].split("\n").last + diss_match[0] + op_text[diss_match.end(0)..-1].split("\n").first
+          
+					#find judge
+          rgx =  /(\w*),\s([C,c]\.\s)?[J,j]\.,\sdissenting/
+					js_cited = paragraph.to_enum(:scan, rgx).map { Regexp.last_match }
+					judge_cited = nil
+					judge_cited = js_cited.last[1].upcase unless js_cited.empty?
 
-    diss_matches.each do |diss_match|
-      paragraph = op_text[0..diss_match.begin(0)-1].split("\n").last + diss_match[0] + op_text[diss_match.end(0)..-1].split("\n").first
+					#find citation
+					
+					start_of_paragraph = op_text[0..diss_match.begin(0)-1].split("\n").last 
+					cs_cited = start_of_paragraph.to_enum(:scan, /(\d\d\d)\sU.\s?S.\s(\d*)/).map { Regexp.last_match }
+					dissent_citation = nil
+					dissent_citation = cs_cited.last[0].sub("U. S.", "U.S.") unless cs_cited.empty?
+					author = op['author'].nil? ? nil : op['author'].gsub(/(chief|Cheif|justice|Justice|\,)/,"").strip.upcase
 
-      #find judge
-      rgx =  /(\w*),\s([C,c]\.\s)?[J,j]\.,\sdissenting/
-      js_cited = paragraph.to_enum(:scan, rgx).map { Regexp.last_match }
-      judge_cited = nil
-      judge_cited = js_cited.last[1].upcase unless js_cited.empty?
+          doc = {
+						kase:              kase['id'],
+						diss_matches:      diss_matches.count,
+						diss_match:        diss_match.begin(0),
+            case_name:         kase['name_abbreviation'],
+            docket_number:     kase['docket_number'],
+            decision_date:     kase['decision_date'],
+            case_citation:     kase['citations'].select{|ii| ii['type']=='official'}.first['cite'],
+            dissent_citation:  dissent_citation,
+            part_of_opinion:   op['type'],
+            judge:             author,
+            judge_cited:       judge_cited,
+            blurb:             paragraph,
+            full_opinion:      kase['frontend_url']
+          }
+						
+					 #if judge_cited
+						#puts doc[:judge_cited]; count = count+1; puts count
+					#end
 
-      start_of_paragraph = op_text[0..diss_match.begin(0)-1].split("\n").last 
-      cs_cited = start_of_paragraph.to_enum(:scan, /(\d\d\d)\sU.\s?S.\s(\d*)/).map { Regexp.last_match }
-      dissent_citation = nil
-      dissent_citation = cs_cited.last[0].sub("U. S.", "U.S.") unless cs_cited.empty?
-      author = op['author_formatted'].nil? ? nil : op['author_formatted'].upcase
+					 #if doc[:dissent_citation]
+						#puts dissent_citation; count = count+1; puts count
+					#end
 
-      doc = {
-        kase:              kase['id'],
-        diss_matches:      diss_matches.count,
-        diss_match:        diss_match.begin(0),
-        case_name:         kase['name_abbreviation'],
-        docket_number:     kase['docket_number'],
-        decision_date:     kase['decision_date'],
-        case_citation:     kase['citations'].select{|ii| ii['type']=='official'}.first['cite'],
-        dissent_citation:  dissent_citation,
-        part_of_opinion:   op['type'],
-        judge:             author,
-        judge_cited:       judge_cited,
-        blurb:             paragraph,
-        full_opinion:      kase['frontend_url']
-      }
-
-      #if judge_cited
-      #puts doc[:judge_cited]; count = count+1; puts count
-      #end
-
-      #if doc[:dissent_citation]
-      #puts dissent_citation; count = count+1; puts count
-      #end
-
-      if judge_cited && dissent_citation
-        #add some scdb info
-				more_info = DB[:scdb].find({'usCite': doc[:case_citation]}).first
-        unless more_info.nil?
-          doc[:case_disposition] = more_info["caseDisposition"]
-          doc[:precedent_alteration] = more_info["precedentAlteration"]
-          doc[:issue_area] = more_info["issueArea"]
-          doc[:maj_votes] = more_info["majVotes"]
-          doc[:min_votes] = more_info["minVotes"]
-          row_collection.insert_one(doc)
-        else
-          doc[:case_disposition] = nil
-          doc[:precedent_alteration] = nil
-          doc[:issue_area] = nil
-          doc[:maj_votes] = nil
-          doc[:min_votes] = nil
+					if judge_cited && dissent_citation
+						#ap doc; count = count+1; puts count
+      			row_collection.insert_one(doc)
+					end
         end
-       
-        #ap doc
-        #row_collection.insert_one(doc)
-      end #if
-    end #each diss
-  end #each kase
-end #def
+      end
+    end
+	}
+end
 
 def explore
   col = DB[:ALL].find({
@@ -157,29 +129,33 @@ def explore_matching(date='2005')
 		#/.{100}dissent.{100}/
 	]
 
-	pipeline = [
-		{
-			'$match': {
-				'decision_date': {
-					'$gte': year
-				}
-			}
-		}, {
-			'$unwind': {
-				'path': '$casebody.data.opinions', 
-				'includeArrayIndex': 'opinionsArrayIndex', 
-				'preserveNullAndEmptyArrays': false
-			}
-		}
-	] 
+  pipeline = [
+    {
+      '$match': {
+        'decision_date': {
+          '$gte': year
+        }
+      }
+    },
+    {
+      '$unwind': {
+        'path': '$casebody.data.opinions', 
+        'includeArrayIndex': 'opIndex', 
+        'preserveNullAndEmptyArrays': false
+      }
+  ]
 
-  DB[:ALL].aggregate(pipeline).each do |opinion|
-    op_text = opinion['casebody']['data']['opinions']['text']
+  DB[:ALL].aggregate(pipeline).each do |kase_unwound|
+    opinion = kase_unwound['casebody']['data']['opinions']
+    op_text = opinion['text']
+
     res = []
     patterns.each_with_index do |pattern, i|
       res[i] = op_text.to_enum(:scan, pattern).map { Regexp.last_match }
     end #patterns.each
+    binding.pry
   end #col.each
+
 end
 
 def get_kases(date='2005', volume, page)
@@ -365,5 +341,3 @@ def join
 	col = DB[:ALL].aggregate(pipeline)
 end
 
-
-explore_matching
