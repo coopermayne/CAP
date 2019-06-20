@@ -14,6 +14,7 @@ require 'httparty'
 require 'awesome_print'
 require 'ruby-graphviz'
 
+Mongo::Logger.logger.level = Logger::FATAL
 
 HEADERS = {headers: { "Authorization" => "Token #{CAP_API_KEY}" }} #set in keys.rb
 DB = Mongo::Client.new(['127.0.0.1:27017'], :database => 'cases') #set in keys.rb
@@ -143,6 +144,8 @@ def find_op_by_cit(vol, page)
 
   op_matches = []
 
+  type = nil
+
   col.each do |kase|
     opinions = kase['casebody']['data']['opinions']
     matching_ops = opinions.select do |op|
@@ -157,6 +160,7 @@ def find_op_by_cit(vol, page)
     au =  "-"*40+"MULTIPLE MATCHES" 
   else
     au = op_matches.first['author']
+    type = op_matches.first['type']
   end
 
   names = col.map{|kase| kase['name_abbreviation']}
@@ -166,6 +170,7 @@ def find_op_by_cit(vol, page)
   ap names
   ap cites
   ap au
+  ap type
   ap '-'*80
 end
 
@@ -268,7 +273,16 @@ def better_find_op(vol, page)
   return_value = 3 if res.first['type']
   return_value = 4 if res.first['type'] && res.count == 1
 
-  return res.first["_id"]
+  return res.map do |item|
+    {
+      "_id"=>item['_id'],
+      "id"=>item['id'],
+      "name_abbreviation"=>item['name_abbreviation'],
+      "citation"=>item['citations'].select{|cit| cit['type']=='official'}.first['cite'],
+      "author"=>item['author'],
+      "type"=>item['type']
+    }
+  end
 end
 
 def join
@@ -331,18 +345,87 @@ def explore_matching(date='2005')
     }
   ]
 
+  count_good = 0
+  count_rejected = 0
+  count_id_patterns = 0
+  count_the_rest = 0
+
   DB[:ALL].aggregate(pipeline).each do |kase_unwound|
+
     opinion = kase_unwound['casebody']['data']['opinions']
     op_text = opinion['text']
 
-    res = []
-    patterns.each_with_index do |pattern, i|
-      res[i] = op_text.to_enum(:scan, pattern).map { Regexp.last_match }
-    end #patterns.each
-    binding.pry
-  end #col.each
+    ignore_patterns = [
+      /\(hereinafter.{0,6}dissent\.?\)/,
+      /[pP]ost.{3,25}\(/,
+      /[aA]nt[ie].{3,25}\(/,
+      /F\.\s\dd.{3,25}\(/,
+      /F\.\s[sS]upp\..{3,25}/,
+      /[NS]..?[EW]..?\dd.{3,25}/,
+    ]
+
+    patterns = [
+      #good patterns
+      #/\(dissenting\sopinion\)/,
+      #/\([^()]{0,100}dissenting\sin\spart[^()]{0,100}\)/,
+      /\([^()]{0,100}[\w’']*.{1,3}[JX][\.\,][^()]{0,100}\)/,
+      /(\d{1,3})\sU.{1,2}S.{1,2}(\d{1,4}).{3,25}\(/,
+      /(\d{1,3})\sU.{1,2}S.{1,3}at.{1,2}(\d{1,4}).{0,15}\(/,
+    ]
+
+      #id patterns
+    id_patterns = [
+      /[iI]d\..{1,2}at.{1,2}\d{1,4}.{0,20}\(/,
+      /[sS]upra.{1,2}at.{1,2}\d{1,4}.{0,20}\(/,
+    ]
+
+    #main pattern
+		pattern = /.{0,200}\([^()]{0,100}dissent[^()]{0,100}\)/
+
+    matches = op_text.to_enum(:scan, pattern).map { Regexp.last_match[0] }
+
+
+    #ignore patterns
+    matches.reject! do |match|
+      r = false
+      ignore_patterns.each do |pattern|
+        (count_rejected+=1; r = true; break) if match.match pattern
+      end
+      r
+    end
+
+		matches.reject! do |match|
+      r = false
+      patterns.each do |pattern|
+        (count_good+=1; r = true; break) if match.match pattern
+      end
+      r
+		end
+
+		matches.reject! do |match|
+      r = false
+      id_patterns.each do |pattern|
+        (count_id_patterns +=1; r = true; break) if match.match pattern
+      end
+      r
+		end
+
+    ap matches unless matches.empty?
+		count_the_rest += matches.count
+  end
+  
+  ap "REJECT MATCHES: #{count_rejected}"
+  ap "GOOD MATCHES: #{count_good}"
+  ap "ID MATCHES: #{count_id_patterns}"
+	ap "THE REST: #{count_the_rest}"
+
 end
 
-def fuzzy
-  
+def find_misspelled_dissent
+	#search all parens
+  #use fuzzy search to look for matches on "dissenting"
+  #take out any that are actually 100% matches
+  #the rest should be what we are looking for...
 end
+
+explore_matching('1900')
