@@ -148,9 +148,26 @@ def export_to_csv(collection_name)
 	end
 end
 
+def export_arr_of_hashes_to_csv(arr, fn)
+	fn = "/Users/coopermayne/Code/UCLA_Re/#{fn}.csv"
+
+	rowid = 0
+	CSV.open(fn, 'w') do |csv|
+		arr.each do |hsh|
+			rowid += 1
+			if rowid == 1
+				csv << hsh.keys
+			else
+				puts hsh.values
+				csv << hsh.values
+			end
+		end
+	end
+end
+
 def export_hash_to_csv(hash, fn)
 
-	fn = "/Users/coopermayne/Code/UCLA/#{fn}.csv"
+	fn = "/Users/coopermayne/Code/UCLA_Re/#{fn}.csv"
 
 	CSV.open(fn, 'w') do |csv|
 		hash.each_pair do |k,v|

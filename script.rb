@@ -1,4 +1,3 @@
-require_relative 'maint.rb' #just has some code req to get database.. can be thrown away...
 require_relative 'keys.rb' #hide this file from git!
 
 require 'gruff'
@@ -15,9 +14,11 @@ require 'awesome_print'
 require 'ruby-graphviz'
 
 
-HEADERS = {headers: { "Authorization" => "Token #{CAP_API_KEY}" }} #set in keys.rb
+HEADERS = {headers: { "date" => "Token #{CAP_API_KEY}" }} #set in keys.rb
 DB = Mongo::Client.new(['127.0.0.1:27017'], :database => 'cases') #set in keys.rb
 COL = :ALL #default collection
+
+require_relative 'maint.rb' #just has some code req to get database.. can be thrown away...
 
 #COUNT ALL US CITATIONS
 def collect_citations
@@ -110,52 +111,6 @@ def explore
   })
 
   binding.pry
-end
-
-def explore_matching(date='2005')
-	#NOTE: there are a couple anomalies -- xml has a few more cits than text fore some reason...
-
-	patterns = [
-    #/(?<vol>\d\d\d)\sU\.?\s?S\.\s(\d*)\,\s?(?<page>\d*)/,
-    #/(?<vol>\d\d\d)\sU.{0,2}S.{0,3}at.{0,4}(?<page>\d*)/,
-    #/(?<vol>\d\d\d)\sU.{0,2}S.{0,3}at\s?(?<page>\d*).{0,20}([C,c]\.\s)?[J,j]\.,\sdissenting/,
-    /(?<vol>\d\d\d)\sU.{0,2}S.{0,3}at\s?(?<page>\d*).{0,20}([C,c]\.\s)?[J,j]\.,\sdissenting/,
-    /([C,c].{1,3})?[J,j].{1,3}dissenting/,
-		#/Id\.,\sat\s(\d*)?.{70}/,
-    #/(?<vol>\d\d\d).{0,2}U.{0,2}S.{0,2}(?<first_page>\d*)(.{0,20})(\w*)?,?\s?([C,c]\.\s)?[J,j]\.,\sdissenting/,
-    #/(?<vol>\d\d\d).{0,2}U.{0,2}S.{0,2}(?<first_page>\d*)(.{0,20})(\w*)?,?\s?([C,c]\.\s)?[J,j]\.,\sdissenting/,
-    #/[I,i]d\.,\sat\s(\d*)?(.{0,30})(\w*)?,?\s?([C,c]\.\s)?[J,j]\.,\sdissenting/,
-		#/.{190}(\w*)?,?\s?([C,c]\.\s)?[J,j]\.,\sdissenting/,
-		#/.{100}dissent.{100}/
-	]
-
-  pipeline = [
-    {
-      '$match': {
-        'decision_date': {
-          '$gte': year
-        }
-      }
-    },
-    {
-      '$unwind': {
-        'path': '$casebody.data.opinions', 
-        'includeArrayIndex': 'opIndex', 
-        'preserveNullAndEmptyArrays': false
-      }
-  ]
-
-  DB[:ALL].aggregate(pipeline).each do |kase_unwound|
-    opinion = kase_unwound['casebody']['data']['opinions']
-    op_text = opinion['text']
-
-    res = []
-    patterns.each_with_index do |pattern, i|
-      res[i] = op_text.to_enum(:scan, pattern).map { Regexp.last_match }
-    end #patterns.each
-    binding.pry
-  end #col.each
-
 end
 
 def get_kases(date='2005', volume, page)
@@ -341,3 +296,49 @@ def join
 	col = DB[:ALL].aggregate(pipeline)
 end
 
+def explore_matching(date='2005')
+	#NOTE: there are a couple anomalies -- xml has a few more cits than text fore some reason...
+
+	patterns = [
+    #/(?<vol>\d\d\d)\sU\.?\s?S\.\s(\d*)\,\s?(?<page>\d*)/,
+    #/(?<vol>\d\d\d)\sU.{0,2}S.{0,3}at.{0,4}(?<page>\d*)/,
+    #/(?<vol>\d\d\d)\sU.{0,2}S.{0,3}at\s?(?<page>\d*).{0,20}([C,c]\.\s)?[J,j]\.,\sdissenting/,
+    /(?<vol>\d\d\d)\sU.{0,2}S.{0,3}at\s?(?<page>\d*).{0,20}([C,c]\.\s)?[J,j]\.,\sdissenting/,
+    /([C,c].{1,3})?[J,j].{1,3}dissenting/,
+		#/Id\.,\sat\s(\d*)?.{70}/,
+    #/(?<vol>\d\d\d).{0,2}U.{0,2}S.{0,2}(?<first_page>\d*)(.{0,20})(\w*)?,?\s?([C,c]\.\s)?[J,j]\.,\sdissenting/,
+    #/(?<vol>\d\d\d).{0,2}U.{0,2}S.{0,2}(?<first_page>\d*)(.{0,20})(\w*)?,?\s?([C,c]\.\s)?[J,j]\.,\sdissenting/,
+    #/[I,i]d\.,\sat\s(\d*)?(.{0,30})(\w*)?,?\s?([C,c]\.\s)?[J,j]\.,\sdissenting/,
+		#/.{190}(\w*)?,?\s?([C,c]\.\s)?[J,j]\.,\sdissenting/,
+		#/.{100}dissent.{100}/
+	]
+
+  pipeline = [
+    {
+      '$match': {
+        'decision_date': {
+          '$gte': date
+        }
+      }
+    },
+    {
+      '$unwind': {
+        'path': '$casebody.data.opinions', 
+        'includeArrayIndex': 'opIndex', 
+        'preserveNullAndEmptyArrays': false
+      }
+    }
+  ]
+
+  DB[:ALL].aggregate(pipeline).each do |kase_unwound|
+    opinion = kase_unwound['casebody']['data']['opinions']
+    op_text = opinion['text']
+
+    res = []
+    patterns.each_with_index do |pattern, i|
+      res[i] = op_text.to_enum(:scan, pattern).map { Regexp.last_match }
+    end #patterns.each
+    binding.pry
+  end #col.each
+
+end
