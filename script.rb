@@ -1,4 +1,5 @@
 require_relative 'keys.rb' #hide this file from git!
+require_relative 'custom_methods.rb' #hide this file from git!
 
 require 'jaro_winkler'
 require 'gruff'
@@ -345,10 +346,10 @@ def explore_matching(date='2005')
     }
   ]
 
-  count_good = 0
-  count_rejected = 0
-  count_id_patterns = 0
-  count_the_rest = 0
+  matches_tot = []
+  ignore_matches = []
+  good_matches = []
+  id_matches = []
 
   DB[:ALL].aggregate(pipeline).each do |kase_unwound|
 
@@ -386,39 +387,38 @@ def explore_matching(date='2005')
 
 
     #ignore patterns
-    matches.reject! do |match|
+    ig_matches = matches.extract do |match|
       r = false
-      ignore_patterns.each do |pattern|
-        (count_rejected+=1; r = true; break) if match.match pattern
-      end
-      r
+      ignore_patterns.each{|pattern| r = true if match.match pattern}
+			r
     end
 
-		matches.reject! do |match|
+    g_matches = matches.extract do |match|
       r = false
-      patterns.each do |pattern|
-        (count_good+=1; r = true; break) if match.match pattern
-      end
+      patterns.each{|pattern| r = true if match.match pattern }
       r
 		end
 
-		matches.reject! do |match|
+    id_matches_temp = matches.extract do |match|
       r = false
-      id_patterns.each do |pattern|
-        (count_id_patterns +=1; r = true; break) if match.match pattern
-      end
+      id_patterns.each{|pattern| r = true if match.match pattern }
       r
 		end
+
+    ignore_matches.concat ig_matches
+    good_matches.concat g_matches
+    id_matches.concat id_matches_temp
 
     ap matches unless matches.empty?
-		count_the_rest += matches.count
+		#count_the_rest += matches.count
   end
-  
-  ap "REJECT MATCHES: #{count_rejected}"
-  ap "GOOD MATCHES: #{count_good}"
-  ap "ID MATCHES: #{count_id_patterns}"
-	ap "THE REST: #{count_the_rest}"
+	
+  ap "REJECT MATCHES: #{ignore_matches.count}"
+  ap "GOOD MATCHES: #{good_matches.count}"
+  ap "ID MATCHES: #{id_matches.count}"
+  ap "THE REST: #{matches.count}"
 
+	binding.pry
 end
 
 def find_misspelled_dissent
