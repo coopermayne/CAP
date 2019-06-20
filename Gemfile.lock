@@ -25,6 +25,7 @@ GEM
       mime-types (~> 3.0)
       multi_xml (>= 0.5.2)
     httpclient (2.8.3)
+    jaro_winkler (1.5.3)
     json (2.2.0)
     jsonl (0.1.5)
     jwt (2.2.1)
@@ -64,6 +65,7 @@ DEPENDENCIES
   firebase
   gruff
   httparty
+  jaro_winkler
   json
   jsonl
   mongo

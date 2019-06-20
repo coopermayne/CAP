@@ -1,5 +1,6 @@
 require_relative 'keys.rb' #hide this file from git!
 
+require 'jaro_winkler'
 require 'gruff'
 require 'nokogiri'
 require 'csv'
@@ -14,7 +15,7 @@ require 'awesome_print'
 require 'ruby-graphviz'
 
 
-HEADERS = {headers: { "date" => "Token #{CAP_API_KEY}" }} #set in keys.rb
+HEADERS = {headers: { "Authorization" => "Token #{CAP_API_KEY}" }} #set in keys.rb
 DB = Mongo::Client.new(['127.0.0.1:27017'], :database => 'cases') #set in keys.rb
 COL = :ALL #default collection
 
@@ -340,5 +341,8 @@ def explore_matching(date='2005')
     end #patterns.each
     binding.pry
   end #col.each
+end
 
+def fuzzy
+  
 end

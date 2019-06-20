@@ -18,5 +18,5 @@ gem 'addressable'
 gem 'awesome_print'
 gem 'jsonl'
 gem 'gruff'
-
 gem 'ruby-graphviz', '~> 1.2', '>= 1.2.4'
+gem 'jaro_winkler'
