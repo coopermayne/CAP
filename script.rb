@@ -268,7 +268,7 @@ def better_find_op(vol, page)
 
   return_value = 0
   if res.count == 0
-    return 1
+    return false
   end
   return_value = 2 if res.count == 1
   return_value = 3 if res.first['type']
@@ -312,7 +312,7 @@ def join
 	col = DB[:ALL].aggregate(pipeline)
 end
 
-def explore_matching(date='2005')
+def match_data_to_db(date='2005')
 	#NOTE: there are a couple anomalies -- xml has a few more cits than text fore some reason...
 
 	patterns = [
@@ -346,20 +346,24 @@ def explore_matching(date='2005')
     }
   ]
 
-  #main pattern
-  pattern = /.{0,200}?\([^()]{0,100}dissent[^()]{0,100}\)/
+  #main pattern pick up all lines with dissent in parens
+  pattern = /.{0,100}?\([^()]{0,100}dissent[^()]{0,100}\)/
 
+  #filter the bad
   ignore_patterns = [
-    /\(hereinafter.{0,6}dissent\.?\)/,
-    /[pP]ost.{3,25}\(/,
-    /[aA]nt[ie].{3,25}\(/,
+    /\(hereinafter.{0,20}dissent.*\)/,
+    /[pP]ost.{1,20}\(/,
+    /[aA]nt[ie].{1,20}\(/,
     /F\.\s\dd.{3,25}\(/,
     /F\.\s[sS]upp\..{3,25}/,
     /[NS]..?[EW]..?\dd.{3,25}/,
   ]
 
+  #main pattern for grabbing information
   good_patterns = [
     #good patterns
+    #/\(dissenting\sopinion\)/,
+    #/\([^()]{0,100}dissenting\sin\spart[^()]{0,100}\)/,
     /\([^()]{0,100}?(?<judge>[\w’']*).{1,3}[JX][\.\,][^()]{0,100}?\)/,
 
     /(?<vol>\d{1,3})\sU.{1,2}S.{1,2}(?<p>\d{1,4}).{1,2}(?<p2>\d{1,4})?-?(?<p3>\d{1,4})?.{3,25}\(/,
@@ -371,7 +375,7 @@ def explore_matching(date='2005')
     /\([^()]{0,100}?(?<vol>\d{1,3})\sU.{1,2}S.{1,3}at.{1,2}(\d{1,4})[^()]{0,100}?\)/,
   ]
 
-  #id patterns
+  #id patterns TODO get these linked up to case info -- maybe manually..
   id_patterns = [
     /[iI]d\..{1,2}at.{1,2}\d{1,4}.{0,20}\(/,
     /[iI]d\..{1,2}.{1,2}\d{1,4}.{0,5}\(/,
@@ -379,51 +383,64 @@ def explore_matching(date='2005')
     /[sS]upra.{1,2}\(/,
   ]
 
-  matches_tot = []
-  ignore_matches = []
+  leftover_matches = []
+  rejected_matches = []
   good_matches = []
   id_matches = []
 
-  DB[:ALL].aggregate(pipeline).each do |kase_unwound|
+  DB[:ALL].aggregate(pipeline).each do |opinion|
 
-    opinion = kase_unwound['casebody']['data']['opinions']
-    op_text = opinion['text']
+    kase_id = opinion['_id']
+    op_index = opinion['opIndex']
+    op_text = opinion['casebody']['data']['opinions']['text']
 
-    matches = op_text.to_enum(:scan, pattern).map { Regexp.last_match }
+    #matches = op_text.to_enum(:scan, pattern).map { Regexp.last_match }
+    matches = op_text.to_enum(:scan, pattern).map { |item| {
+      regexp_match_text: Regexp.last_match[0],
+      regexp_match_index: Regexp.last_match.begin(0),
+      kase_id: kase_id,
+      op_index: op_index,
+      op_text: op_text
+    }}
 
+    next if matches.empty?
 
     #ignore patterns
-    ignore_matches.concat matches.extract{ |match|
+    rejected_matches.concat matches.extract{ |match_data|
       r = false
-      ignore_patterns.each{|pattern| r = true if match[0].match pattern}
+      ignore_patterns.each{|pattern| r = true if match_data[:regexp_match_text].match pattern}
       r
     }
 
-    good_matches.concat matches.extract{ |match|
+    id_matches.concat matches.extract { |match_data|
       r = false
-      good_patterns.each{|pattern| r = true if match[0].match pattern }
+      id_patterns.each{|pattern| r = true if match_data[:regexp_match_text].match pattern }
       r
     }
 
-    id_matches.concat matches.extract { |match|
+    good_matches.concat matches.extract{ |match_data|
       r = false
-      id_patterns.each{|pattern| r = true if match[0].match pattern }
+      good_patterns.each{|pattern| r = true if match_data[:regexp_match_text].match pattern }
       r
     }
 
-    matches_tot.concat matches
-    ap matches.map{|item|item[0]} unless matches.empty?
+    leftover_matches.concat matches
+    ap matches.map{|item|item[:regexp_match_text]} unless matches.empty?
 
   end
 	
-  ap "REJECT MATCHES: #{ignore_matches.count}"
-  ap "GOOD MATCHES: #{good_matches.count}"
+  ap "REJECT MATCHES: #{rejected_matches.count}"
   ap "ID MATCHES: #{id_matches.count}" 
-  ap "THE REST: #{matches_tot.count}"
+  ap "GOOD MATCHES: #{good_matches.count}"
+  ap "THE REST: #{leftover_matches.count}"
 
-  good_matches.each do |gm|
-    ms = good_patterns.map{|pat| gm[0].match pat}
-  end
+  rejected_matches.map{|item| item[:category]='rejected'; item}
+  id_matches.map{|item| item[:category]='id'; item}
+  good_matches.map{|item| item[:category]='good'; item}
+  leftover_matches.map{|item| item[:category]='leftover'; item}
+
+  DB[:matches].delete_many {}
+  DB[:matches].insert_many rejected_matches + id_matches + good_matches + leftover_matches
 end
 
 def find_misspelled_dissent
@@ -433,4 +450,41 @@ def find_misspelled_dissent
   #the rest should be what we are looking for...
 end
 
-explore_matching('2011')
+col = DB[:matches] #for playing with good matches
+count = 0
+
+pipeline = [
+  {'$match': {'category': 'good'}},
+  {'$sample': {'size': 1000}}
+]
+col.aggregate(pipeline).each do |match|
+  txt = match['regexp_match_text']
+
+  #24% not matching here... the rest are id matches
+  #6% have more than 1 match
+  matches = txt.to_enum(:scan, /U[\.\,]\s?S/).map{Regexp.last_match} 
+
+  #(ap match['regexp_match_text']) if matches.empty? #24% here, the rest are fine (these are mostly "id" and "supra" matches... )
+  next if matches.empty? 
+
+  #cut off the bad match and the early part of string before U.S.
+  cut_off_point = matches.last.begin(0)<4 ? 0 : matches.last.begin(0)-4
+  txt = txt[cut_off_point..-1]
+  
+  #now search for the numbers
+  #remove years and not numbers
+  numbers = txt.gsub(/\(\d{4}\)/,'').gsub(/n\.\s\d+/, '').to_enum(:scan, /\d+/).map{Regexp.last_match}
+  vol = numbers.shift
+  page = numbers.pop
+
+  test = vol && page
+  if test
+    res = better_find_op(vol[0],page[0])
+    if res
+      count +=1
+      puts count if count%10==0
+    end
+  end
+end
+
+ap count.to_f/1000
