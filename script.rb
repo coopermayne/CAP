@@ -455,7 +455,7 @@ count = 0
 
 pipeline = [
   {'$match': {'category': 'good'}},
-  {'$sample': {'size': 1000}}
+  {'$sample': {'size': 100}}
 ]
 col.aggregate(pipeline).each do |match|
   txt = match['regexp_match_text']
@@ -477,14 +477,12 @@ col.aggregate(pipeline).each do |match|
   vol = numbers.shift
   page = numbers.pop
 
-  test = vol && page
-  if test
-    res = better_find_op(vol[0],page[0])
-    if res
-      count +=1
-      puts count if count%10==0
-    end
-  end
+  next unless vol && page
+  res = better_find_op(vol[0],page[0])
+  next unless res.first
+  scdb_res = DB[:scdb].find({usCite: res.first['citation']}).find
+  count +=1 if res.first && scdb_res.first
+  puts count if count%10==0
 end
 
-ap count.to_f/1000
+ap count.to_f/100
