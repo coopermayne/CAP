@@ -346,6 +346,39 @@ def explore_matching(date='2005')
     }
   ]
 
+  #main pattern
+  pattern = /.{0,200}?\([^()]{0,100}dissent[^()]{0,100}\)/
+
+  ignore_patterns = [
+    /\(hereinafter.{0,6}dissent\.?\)/,
+    /[pP]ost.{3,25}\(/,
+    /[aA]nt[ie].{3,25}\(/,
+    /F\.\s\dd.{3,25}\(/,
+    /F\.\s[sS]upp\..{3,25}/,
+    /[NS]..?[EW]..?\dd.{3,25}/,
+  ]
+
+  good_patterns = [
+    #good patterns
+    /\([^()]{0,100}?(?<judge>[\w’']*).{1,3}[JX][\.\,][^()]{0,100}?\)/,
+
+    /(?<vol>\d{1,3})\sU.{1,2}S.{1,2}(?<p>\d{1,4}).{1,2}(?<p2>\d{1,4})?-?(?<p3>\d{1,4})?.{3,25}\(/,
+
+    /(?<vol>\d{1,3})\sU.{1,2}S.{1,3}at.{1,2}(?<p2>\d{1,4})-?(\d{1,4})?.{0,15}\(/,
+
+    /\([^()]{0,100}?(?<vol>\d{1,3})\sU.{1,2}S.{1,2}(\d{1,4})[^()]{0,100}?\)/,
+
+    /\([^()]{0,100}?(?<vol>\d{1,3})\sU.{1,2}S.{1,3}at.{1,2}(\d{1,4})[^()]{0,100}?\)/,
+  ]
+
+  #id patterns
+  id_patterns = [
+    /[iI]d\..{1,2}at.{1,2}\d{1,4}.{0,20}\(/,
+    /[iI]d\..{1,2}.{1,2}\d{1,4}.{0,5}\(/,
+    /[sS]upra.{1,2}at.{1,2}\d{1,4}.{0,20}\(/,
+    /[sS]upra.{1,2}\(/,
+  ]
+
   matches_tot = []
   ignore_matches = []
   good_matches = []
@@ -356,69 +389,41 @@ def explore_matching(date='2005')
     opinion = kase_unwound['casebody']['data']['opinions']
     op_text = opinion['text']
 
-    ignore_patterns = [
-      /\(hereinafter.{0,6}dissent\.?\)/,
-      /[pP]ost.{3,25}\(/,
-      /[aA]nt[ie].{3,25}\(/,
-      /F\.\s\dd.{3,25}\(/,
-      /F\.\s[sS]upp\..{3,25}/,
-      /[NS]..?[EW]..?\dd.{3,25}/,
-    ]
-
-    patterns = [
-      #good patterns
-      #/\(dissenting\sopinion\)/,
-      #/\([^()]{0,100}dissenting\sin\spart[^()]{0,100}\)/,
-      /\([^()]{0,100}[\w’']*.{1,3}[JX][\.\,][^()]{0,100}\)/,
-      /(\d{1,3})\sU.{1,2}S.{1,2}(\d{1,4}).{3,25}\(/,
-      /(\d{1,3})\sU.{1,2}S.{1,3}at.{1,2}(\d{1,4}).{0,15}\(/,
-    ]
-
-      #id patterns
-    id_patterns = [
-      /[iI]d\..{1,2}at.{1,2}\d{1,4}.{0,20}\(/,
-      /[sS]upra.{1,2}at.{1,2}\d{1,4}.{0,20}\(/,
-    ]
-
-    #main pattern
-		pattern = /.{0,200}\([^()]{0,100}dissent[^()]{0,100}\)/
-
-    matches = op_text.to_enum(:scan, pattern).map { Regexp.last_match[0] }
+    matches = op_text.to_enum(:scan, pattern).map { Regexp.last_match }
 
 
     #ignore patterns
-    ig_matches = matches.extract do |match|
+    ignore_matches.concat matches.extract{ |match|
       r = false
-      ignore_patterns.each{|pattern| r = true if match.match pattern}
-			r
-    end
-
-    g_matches = matches.extract do |match|
-      r = false
-      patterns.each{|pattern| r = true if match.match pattern }
+      ignore_patterns.each{|pattern| r = true if match[0].match pattern}
       r
-		end
+    }
 
-    id_matches_temp = matches.extract do |match|
+    good_matches.concat matches.extract{ |match|
       r = false
-      id_patterns.each{|pattern| r = true if match.match pattern }
+      good_patterns.each{|pattern| r = true if match[0].match pattern }
       r
-		end
+    }
 
-    ignore_matches.concat ig_matches
-    good_matches.concat g_matches
-    id_matches.concat id_matches_temp
+    id_matches.concat matches.extract { |match|
+      r = false
+      id_patterns.each{|pattern| r = true if match[0].match pattern }
+      r
+    }
 
-    ap matches unless matches.empty?
-		#count_the_rest += matches.count
+    matches_tot.concat matches
+    ap matches.map{|item|item[0]} unless matches.empty?
+
   end
 	
   ap "REJECT MATCHES: #{ignore_matches.count}"
   ap "GOOD MATCHES: #{good_matches.count}"
-  ap "ID MATCHES: #{id_matches.count}"
-  ap "THE REST: #{matches.count}"
+  ap "ID MATCHES: #{id_matches.count}" 
+  ap "THE REST: #{matches_tot.count}"
 
-	binding.pry
+  good_matches.each do |gm|
+    ms = good_patterns.map{|pat| gm[0].match pat}
+  end
 end
 
 def find_misspelled_dissent
@@ -428,4 +433,4 @@ def find_misspelled_dissent
   #the rest should be what we are looking for...
 end
 
-explore_matching('1900')
+explore_matching('2011')
