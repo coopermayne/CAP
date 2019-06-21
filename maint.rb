@@ -495,3 +495,134 @@ def get_justice_name(group)
 
   return judge
 end
+
+def match_data_to_db(date='2005')
+	#NOTE: there are a couple anomalies -- xml has a few more cits than text fore some reason...
+
+	patterns = [
+    #/(?<vol>\d\d\d)\sU\.?\s?S\.\s(\d*)\,\s?(?<page>\d*)/,
+    #/(?<vol>\d\d\d)\sU.{0,2}S.{0,3}at.{0,4}(?<page>\d*)/,
+    #/(?<vol>\d\d\d)\sU.{0,2}S.{0,3}at\s?(?<page>\d*).{0,20}([C,c]\.\s)?[J,j]\.,\sdissenting/,
+    /(?<vol>\d\d\d)\sU.{0,2}S.{0,3}at\s?(?<page>\d*).{0,20}([C,c]\.\s)?[J,j]\.,\sdissenting/,
+    /([C,c].{1,3})?[J,j].{1,3}dissenting/,
+		#/Id\.,\sat\s(\d*)?.{70}/,
+    #/(?<vol>\d\d\d).{0,2}U.{0,2}S.{0,2}(?<first_page>\d*)(.{0,20})(\w*)?,?\s?([C,c]\.\s)?[J,j]\.,\sdissenting/,
+    #/(?<vol>\d\d\d).{0,2}U.{0,2}S.{0,2}(?<first_page>\d*)(.{0,20})(\w*)?,?\s?([C,c]\.\s)?[J,j]\.,\sdissenting/,
+    #/[I,i]d\.,\sat\s(\d*)?(.{0,30})(\w*)?,?\s?([C,c]\.\s)?[J,j]\.,\sdissenting/,
+		#/.{190}(\w*)?,?\s?([C,c]\.\s)?[J,j]\.,\sdissenting/,
+		#/.{100}dissent.{100}/
+	]
+
+  pipeline = [
+    {
+      '$match': {
+        'decision_date': {
+          '$gte': date
+        }
+      }
+    },
+    {
+      '$unwind': {
+        'path': '$casebody.data.opinions', 
+        'includeArrayIndex': 'opIndex', 
+        'preserveNullAndEmptyArrays': false
+      }
+    }
+  ]
+
+  #main pattern pick up all lines with dissent in parens
+  pattern = /.{0,100}?\([^()]{0,100}dissent[^()]{0,100}\)/
+
+  #filter the bad
+  ignore_patterns = [
+    /\(hereinafter.{0,20}dissent.*\)/,
+    /[pP]ost.{1,20}\(/,
+    /[aA]nt[ie].{1,20}\(/,
+    /F\.\s\dd.{3,25}\(/,
+    /F\.\s[sS]upp\..{3,25}/,
+    /[NS]..?[EW]..?\dd.{3,25}/,
+  ]
+
+  #main pattern for grabbing information
+  good_patterns = [
+    #good patterns
+    #/\(dissenting\sopinion\)/,
+    #/\([^()]{0,100}dissenting\sin\spart[^()]{0,100}\)/,
+    /\([^()]{0,100}?(?<judge>[\w’']*).{1,3}[JX][\.\,][^()]{0,100}?\)/,
+
+    /(?<vol>\d{1,3})\sU.{1,2}S.{1,2}(?<p>\d{1,4}).{1,2}(?<p2>\d{1,4})?-?(?<p3>\d{1,4})?.{3,25}\(/,
+
+    /(?<vol>\d{1,3})\sU.{1,2}S.{1,3}at.{1,2}(?<p2>\d{1,4})-?(\d{1,4})?.{0,15}\(/,
+
+    /\([^()]{0,100}?(?<vol>\d{1,3})\sU.{1,2}S.{1,2}(\d{1,4})[^()]{0,100}?\)/,
+
+    /\([^()]{0,100}?(?<vol>\d{1,3})\sU.{1,2}S.{1,3}at.{1,2}(\d{1,4})[^()]{0,100}?\)/,
+  ]
+
+  #id patterns TODO get these linked up to case info -- maybe manually..
+  id_patterns = [
+    /[iI]d\..{1,2}at.{1,2}\d{1,4}.{0,20}\(/,
+    /[iI]d\..{1,2}.{1,2}\d{1,4}.{0,5}\(/,
+    /[sS]upra.{1,2}at.{1,2}\d{1,4}.{0,20}\(/,
+    /[sS]upra.{1,2}\(/,
+  ]
+
+  leftover_matches = []
+  rejected_matches = []
+  good_matches = []
+  id_matches = []
+
+  DB[:ALL].aggregate(pipeline).each do |opinion|
+
+    kase_id = opinion['_id']
+    op_index = opinion['opIndex']
+    op_text = opinion['casebody']['data']['opinions']['text']
+
+    #matches = op_text.to_enum(:scan, pattern).map { Regexp.last_match }
+    matches = op_text.to_enum(:scan, pattern).map { |item| {
+      regexp_match_text: Regexp.last_match[0],
+      regexp_match_index: Regexp.last_match.begin(0),
+      kase_id: kase_id,
+      op_index: op_index,
+      op_text: op_text
+    }}
+
+    next if matches.empty?
+
+    #ignore patterns
+    rejected_matches.concat matches.extract{ |match_data|
+      r = false
+      ignore_patterns.each{|pattern| r = true if match_data[:regexp_match_text].match pattern}
+      r
+    }
+
+    id_matches.concat matches.extract { |match_data|
+      r = false
+      id_patterns.each{|pattern| r = true if match_data[:regexp_match_text].match pattern }
+      r
+    }
+
+    good_matches.concat matches.extract{ |match_data|
+      r = false
+      good_patterns.each{|pattern| r = true if match_data[:regexp_match_text].match pattern }
+      r
+    }
+
+    leftover_matches.concat matches
+    ap matches.map{|item|item[:regexp_match_text]} unless matches.empty?
+
+  end
+	
+  ap "REJECT MATCHES: #{rejected_matches.count}"
+  ap "ID MATCHES: #{id_matches.count}" 
+  ap "GOOD MATCHES: #{good_matches.count}"
+  ap "THE REST: #{leftover_matches.count}"
+
+  rejected_matches.map{|item| item[:category]='rejected'; item}
+  id_matches.map{|item| item[:category]='id'; item}
+  good_matches.map{|item| item[:category]='good'; item}
+  leftover_matches.map{|item| item[:category]='leftover'; item}
+
+  DB[:matches].delete_many {}
+  DB[:matches].insert_many rejected_matches + id_matches + good_matches + leftover_matches
+end

@@ -270,9 +270,6 @@ def better_find_op(vol, page)
   if res.count == 0
     return false
   end
-  return_value = 2 if res.count == 1
-  return_value = 3 if res.first['type']
-  return_value = 4 if res.first['type'] && res.count == 1
 
   return res.map do |item|
     {
@@ -444,45 +441,76 @@ def match_data_to_db(date='2005')
 end
 
 def find_misspelled_dissent
+  #NOTE this didn't pick up many misspellings... 
+  
+  #Djissent, .86
+  #Dissenting, .81 (NOTE fix all regex to ignore caps!)
+  
+  pipeline = [
+    {
+      '$unwind': {
+        'path': '$casebody.data.opinions', 
+        'includeArrayIndex': 'opIndex', 
+        'preserveNullAndEmptyArrays': false
+      }
+    }
+  ]
+
 	#search all parens
+  pattern = /\((?<text>.*?)\)/
+  matches = []
+  DB[:ALL].aggregate(pipeline).each do |opinion|
+    op_text = opinion['casebody']['data']['opinions']['text']
+    all_paren_matches = op_text.to_enum(:scan, pattern).map{Regexp.last_match}
+    all_paren_matches.each do |paren_match|
+      j = paren_match['text'].gsub(/\W/, ' ').split(' ').map{|ii| [ii, JaroWinkler.jaro_distance("dissent", ii) ]}
+      r =  j.select{|i| !i[0].match(/dissent/) && i[1] > 0.80}
+      ap r unless r.empty?
+    end
+  end
   #use fuzzy search to look for matches on "dissenting"
   #take out any that are actually 100% matches
   #the rest should be what we are looking for...
 end
 
-col = DB[:matches] #for playing with good matches
-count = 0
+def cull_good_matches
+  col = DB[:matches] #for playing with good matches
+  count = 0
 
-pipeline = [
-  {'$match': {'category': 'good'}},
-  {'$sample': {'size': 100}}
-]
-col.aggregate(pipeline).each do |match|
-  txt = match['regexp_match_text']
+  pipeline = [
+    {'$match': {'category': 'good'}}
+    #{'$sample': {'size': 100}}
+  ]
+  col.aggregate(pipeline).each do |match|
+    txt = match['regexp_match_text']
 
-  #24% not matching here... the rest are id matches
-  #6% have more than 1 match
-  matches = txt.to_enum(:scan, /U[\.\,]\s?S/).map{Regexp.last_match} 
+    #24% not matching here... the rest are id matches
+    #6% have more than 1 match
+    matches = txt.to_enum(:scan, /U[\.\,]\s?S/).map{Regexp.last_match} 
 
-  #(ap match['regexp_match_text']) if matches.empty? #24% here, the rest are fine (these are mostly "id" and "supra" matches... )
-  next if matches.empty? 
+    #(ap match['regexp_match_text']) if matches.empty? #24% here, the rest are fine (these are mostly "id" and "supra" matches... )
+    next if matches.empty? 
 
-  #cut off the bad match and the early part of string before U.S.
-  cut_off_point = matches.last.begin(0)<4 ? 0 : matches.last.begin(0)-4
-  txt = txt[cut_off_point..-1]
-  
-  #now search for the numbers
-  #remove years and not numbers
-  numbers = txt.gsub(/\(\d{4}\)/,'').gsub(/n\.\s\d+/, '').to_enum(:scan, /\d+/).map{Regexp.last_match}
-  vol = numbers.shift
-  page = numbers.pop
+    #cut off the bad match and the early part of string before U.S.
+    cut_off_point = matches.last.begin(0)<4 ? 0 : matches.last.begin(0)-4
+    txt = txt[cut_off_point..-1]
 
-  next unless vol && page
-  res = better_find_op(vol[0],page[0])
-  next unless res.first
-  scdb_res = DB[:scdb].find({usCite: res.first['citation']}).find
-  count +=1 if res.first && scdb_res.first
-  puts count if count%10==0
+    #now search for the numbers
+    #remove years and not numbers
+    numbers = txt.gsub(/\(\d{4}\)/,'').gsub(/n\.\s\d+/, '').to_enum(:scan, /\d+/).map{Regexp.last_match}
+    vol = numbers.shift
+    page = numbers.pop
+
+    next unless vol && page
+    res = better_find_op(vol[0],page[0])
+    next unless res
+    scdb_res = DB[:scdb].find({usCite: res.first['citation']}).find
+    count +=1 if res.first && scdb_res.first
+    puts count if count%10==0
+  end
+
+  ap count.to_f/col.find.count.to_f
 end
 
-ap count.to_f/100
+def cull_ids
+end
