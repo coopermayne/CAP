@@ -536,8 +536,6 @@ def match_data_to_db(date='2005')
   #filter the bad
   ignore_patterns = [
     /\(hereinafter.{0,20}dissent.*\)/,
-    /[pP]ost.{1,20}\(/,
-    /[aA]nt[ie].{1,20}\(/,
     /F\.\s\dd.{3,25}\(/,
     /F\.\s[sS]upp\..{3,25}/,
     /[NS]..?[EW]..?\dd.{3,25}/,
@@ -548,7 +546,7 @@ def match_data_to_db(date='2005')
     #good patterns
     #/\(dissenting\sopinion\)/,
     #/\([^()]{0,100}dissenting\sin\spart[^()]{0,100}\)/,
-    /\([^()]{0,100}?(?<judge>[\w’']*).{1,3}[JX][\.\,][^()]{0,100}?\)/,
+    /\([^()]{0,100}?(?<judge>[\w’']*).{1,5}[JX][\.\,][^()]{0,100}?\)/,
 
     /(?<vol>\d{1,3})\sU.{1,2}S.{1,2}(?<p>\d{1,4}).{1,2}(?<p2>\d{1,4})?-?(?<p3>\d{1,4})?.{3,25}\(/,
 
@@ -565,6 +563,8 @@ def match_data_to_db(date='2005')
     /[iI]d\..{1,2}.{1,2}\d{1,4}.{0,5}\(/,
     /[sS]upra.{1,2}at.{1,2}\d{1,4}.{0,20}\(/,
     /[sS]upra.{1,2}\(/,
+    /[pP]ost.{1,20}\(/,
+    /[aA]nt[ie].{1,20}\(/,
   ]
 
   leftover_matches = []

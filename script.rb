@@ -176,7 +176,7 @@ def find_op_by_cit(vol, page)
 end
 
 def better_find_op(vol, page)
-  #return the opinion
+  #return an array of matching opinions
   
   vol = vol.to_i
   page = page.to_i
@@ -283,32 +283,6 @@ def better_find_op(vol, page)
   end
 end
 
-def join
-	pipeline = [
-		{
-			'$lookup': {
-				'from': 'scdb', 
-				'localField': 'cite', 
-				'foreignField': 'usCite', 
-				'as': 'test'
-			}
-		}, {
-			'$match': {
-				'test': {
-					'$ne': []
-				}
-			}
-		}, {
-			'$project': {
-				'id': 1, 
-				'test': 1
-			}
-		}
-	]
-
-	col = DB[:ALL].aggregate(pipeline)
-end
-
 def find_misspelled_dissent
   #NOTE this didn't pick up many misspellings... 
   
@@ -347,8 +321,8 @@ def cull_good_matches
   count = 0
 
   pipeline = [
-    {'$match': {'category': 'good'}}
-    #{'$sample': {'size': 100}}
+    {'$match': {'category': 'good'}}, 
+    {'$sample': {'size': 100}}
   ]
   col.aggregate(pipeline).each do |match|
     txt = match['regexp_match_text']
@@ -371,15 +345,27 @@ def cull_good_matches
     page = numbers.pop
 
     next unless vol && page
+    count +=1 if vol && page
     res = better_find_op(vol[0],page[0])
     next unless res
     scdb_res = DB[:scdb].find({usCite: res.first['citation']}).find
-    count +=1 if res.first && scdb_res.first
+    #count +=1 if res.first && scdb_res.first
     puts count if count%10==0
   end
 
-  ap count.to_f/col.find.count.to_f
+  ap count.to_f/100
 end
 
 def cull_ids
+  col = DB[:matches] #for playing with good matches
+  count = 0
+
+  pipeline = [
+    {'$match': {'category': 'good'}}, 
+    {'$sample': {'size': 100}}
+  ]
+
+  col.aggregate(pipeline)
 end
+
+match_data_to_db '1900'
