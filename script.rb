@@ -184,27 +184,27 @@ def better_find_op(vol, page)
   #TODO add conditionals to makes this all one pipeline?
   #numberOfColors: { $cond: { if: { $isArray: "$colors" }, then: { $size: "$colors" }, else: "NA"} }
 
-	kase_pipline = [
-		{
-			'$match': {
-				'$and': [
-					{ 'volume.volume_number': vol }, 
-          { 'first_page': { '$lte': page } }, 
-          { 'last_page': { '$gte': page } }
-				]
-			}
-		},
-    {
-      '$project': {
-        'id': 1, 
-        'name_abbreviation': 1, 
-        'volume': 1, 
-        'author': { '$arrayElemAt': ["$casebody.data.opinions.author", 0] }, 
-        'type': { '$arrayElemAt': ["$casebody.data.opinions.type", 0] }, 
-        "citations": 1
-      },
-    }
-	]
+	#kase_pipline = [
+		#{
+			#'$match': {
+				#'$and': [
+					#{ 'volume.volume_number': vol }, 
+          #{ 'first_page': { '$lte': page } }, 
+          #{ 'last_page': { '$gte': page } }
+				#]
+			#}
+		#},
+    #{
+      #'$project': {
+        #'id': 1, 
+        #'name_abbreviation': 1, 
+        #'volume': 1, 
+        #'author': { '$arrayElemAt': ["$casebody.data.opinions.author", 0] }, 
+        #'type': { '$arrayElemAt': ["$casebody.data.opinions.type", 0] }, 
+        #"citations": 1
+      #},
+    #}
+	#]
 
   op_pipeline = [
     {
@@ -249,27 +249,25 @@ def better_find_op(vol, page)
         'name_abbreviation': 1, 
         'volume': '$volume.volume_number', 
         'author': '$casebody.data.opinions.author', 
+        'author_formatted': '$casebody.data.opinions.author_formatted', 
+        'first_page': '$casebody.data.opinions.first_page', 
+        'last_page': '$casebody.data.opinions.last_page', 
         'type': '$casebody.data.opinions.type',
         "citations": 1
       }
     }
   ]
 
-	m_kases = DB[COL].aggregate(kase_pipline)
-  m_ops = DB[COL].aggregate(op_pipeline)
+	#m_kases = DB[COL].aggregate(kase_pipline)
+  res = DB[COL].aggregate(op_pipeline)
 
-	if m_ops.count == 0
-    res = m_kases
-    kase_or_op = "kase"
-  else
-    res = m_ops
-    kase_or_op = "op"
-	end
-
-  return_value = 0
-  if res.count == 0
-    return false
-  end
+	#if m_ops.count == 0
+    #res = m_kases
+    #kase_or_op = "kase"
+  #else
+    #res = m_ops
+    #kase_or_op = "op"
+	#end
 
   return res.map do |item|
     {
@@ -278,6 +276,9 @@ def better_find_op(vol, page)
       "name_abbreviation"=>item['name_abbreviation'],
       "citation"=>item['citations'].select{|cit| cit['type']=='official'}.first['cite'],
       "author"=>item['author'],
+      "author_formatted"=>item['author_formatted'],
+      "first_page"=>item['first_page'],
+      "last_page"=>item['last_page'],
       "type"=>item['type']
     }
   end
@@ -318,11 +319,11 @@ end
 
 def cull_good_matches
   col = DB[:matches] #for playing with good matches
-  count = 0
+  c = 0
 
   pipeline = [
     {'$match': {'category': 'good'}}, 
-    {'$sample': {'size': 100}}
+    {'$sample': {'size': 1000}}
   ]
   col.aggregate(pipeline).each do |match|
     txt = match['regexp_match_text']
@@ -345,27 +346,37 @@ def cull_good_matches
     page = numbers.pop
 
     next unless vol && page
-    count +=1 if vol && page
+
     res = better_find_op(vol[0],page[0])
-    next unless res
-    scdb_res = DB[:scdb].find({usCite: res.first['citation']}).find
-    #count +=1 if res.first && scdb_res.first
-    puts count if count%10==0
+
+    if res.empty?
+      next
+    elsif res.count>1
+      res_dissents = res.select{|item|item['type'].match /dissent/}
+
+      res_match_justice_name = res.select do |item|
+        unless item['author_formatted'].nil?
+          txt.downcase.match( item['author_formatted'])
+        else
+          false
+        end
+      end
+
+      if res_dissents.count == 1
+        res = res_dissents.first
+      elsif res_match_justice_name.count == 1
+        res = res_match_justice_name.first
+      else
+        #if we can't narrow it using name or category
+        next
+      end
+    elsif res.count==1
+      res = res.first
+    end
+
+    c +=1 if res
+    ap c if c%10==0
   end
 
-  ap count.to_f/100
+  ap c
 end
-
-def cull_ids
-  col = DB[:matches] #for playing with good matches
-  count = 0
-
-  pipeline = [
-    {'$match': {'category': 'good'}}, 
-    {'$sample': {'size': 100}}
-  ]
-
-  col.aggregate(pipeline)
-end
-
-match_data_to_db '1900'
