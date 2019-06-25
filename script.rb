@@ -243,45 +243,10 @@ def better_find_op(vol, page)
           }
         ]
       }
-    }, {
-      '$project': {
-        'id': 1, 
-        'name_abbreviation': 1, 
-        'volume': '$volume.volume_number', 
-        'author': '$casebody.data.opinions.author', 
-        'author_formatted': '$casebody.data.opinions.author_formatted', 
-        'first_page': '$casebody.data.opinions.first_page', 
-        'last_page': '$casebody.data.opinions.last_page', 
-        'type': '$casebody.data.opinions.type',
-        "citations": 1
-      }
-    }
+    },
   ]
 
-	#m_kases = DB[COL].aggregate(kase_pipline)
-  res = DB[COL].aggregate(op_pipeline)
-
-	#if m_ops.count == 0
-    #res = m_kases
-    #kase_or_op = "kase"
-  #else
-    #res = m_ops
-    #kase_or_op = "op"
-	#end
-
-  return res.map do |item|
-    {
-      "_id"=>item['_id'],
-      "id"=>item['id'],
-      "name_abbreviation"=>item['name_abbreviation'],
-      "citation"=>item['citations'].select{|cit| cit['type']=='official'}.first['cite'],
-      "author"=>item['author'],
-      "author_formatted"=>item['author_formatted'],
-      "first_page"=>item['first_page'],
-      "last_page"=>item['last_page'],
-      "type"=>item['type']
-    }
-  end
+  DB[COL].aggregate(op_pipeline)
 end
 
 def find_misspelled_dissent
@@ -322,11 +287,12 @@ def cull_good_matches
   c = 0
 
   pipeline = [
-    {'$match': {'category': 'good'}}, 
-    {'$sample': {'size': 1000}}
+    #{'$match': {'category': 'good'}}, 
+    {'$sample': {'size': 100}}
   ]
   col.aggregate(pipeline).each do |match|
     txt = match['regexp_match_text']
+    judge_guess = match['judge']
 
     #24% not matching here... the rest are id matches
     #6% have more than 1 match
@@ -349,23 +315,26 @@ def cull_good_matches
 
     res = better_find_op(vol[0],page[0])
 
-    if res.empty?
+    if res.count == 0
       next
     elsif res.count>1
-      res_dissents = res.select{|item|item['type'].match /dissent/}
+      #handle multiple matches by filtering for type dissent
+      res_dissents = res.select{|item| item['casebody']['data']['opinions']['type'].match /dissent/}
 
+      #handle multiple matches by filtering for judge name
       res_match_justice_name = res.select do |item|
-        unless item['author_formatted'].nil?
-          txt.downcase.match( item['author_formatted'])
+        o = item['casebody']['data']['opinions']
+        unless o['author_formatted'].nil? || judge_guess.nil?
+          judge_guess.gsub(/[^a-z]/, '') == o['author_formatted'].gsub(/[^a-z]/, '')
         else
           false
         end
       end
 
-      if res_dissents.count == 1
-        res = res_dissents.first
-      elsif res_match_justice_name.count == 1
+      if res_match_justice_name.count == 1
         res = res_match_justice_name.first
+      elsif res_dissents.count == 1
+        res = res_dissents.first
       else
         #if we can't narrow it using name or category
         next
@@ -373,10 +342,75 @@ def cull_good_matches
     elsif res.count==1
       res = res.first
     end
-
-    c +=1 if res
+    c+=1 if res && res['casebody']['data']['opinions']['author_formatted']==match['judge']
     ap c if c%10==0
   end
-
   ap c
 end
+
+def cull_id_matches
+  #500 id
+  #250 supra
+  #250 post
+  #150 ante
+
+  c = 0
+  pipeline = [
+    {
+      '$match': {
+        'category': 'id',
+        'done': {'$ne': 1}
+      },
+    }, 
+    { 
+      '$sample': {'size': 100}
+    }
+  ]
+
+  DB[:matches].aggregate(pipeline).each do |match|
+    txt = match['regexp_match_text']
+    txt_i = match['regexp_match_index']
+    next unless txt.match /[iI]d\./
+
+    n = 200
+    longer_match = match['op_text'][txt_i-n, txt.length+n]
+
+    matches = longer_match.to_enum(:scan, /U[\.\,]\s?S/).map{Regexp.last_match} 
+
+    next if matches.empty? 
+
+    #cut off the bad match and the early part of string before U.S.
+    cut_off_point = matches.last.begin(0)<4 ? 0 : matches.last.begin(0)-4
+    longer_match = longer_match[cut_off_point..-1]
+
+    #now search for the numbers
+    #remove years and not numbers
+    numbers = longer_match.gsub(/\(\d{4}\)/,'').gsub(/n\.\s\d+/, '').to_enum(:scan, /\d+/).map{Regexp.last_match}
+    vol = numbers.shift
+    page = numbers.pop
+    next unless vol&&page
+    res = better_find_op(vol[0],page[0])
+    c+=1 if res.count>1
+  end
+  ap c
+end
+
+def new_culling_method
+  pipeline = [
+    {
+      '$match': {
+        'category': 'id',
+        'judge': {'$ne': nil}
+      },
+    }, 
+    #{ 
+      #'$sample': {'size': 100}
+    #}
+  ]
+
+  DB[:matches].aggregate(pipeline).each do |match|
+    binding.pry
+  end
+end
+
+new_culling_method

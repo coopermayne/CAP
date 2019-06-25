@@ -546,7 +546,7 @@ def match_data_to_db(date='2005')
     #good patterns
     #/\(dissenting\sopinion\)/,
     #/\([^()]{0,100}dissenting\sin\spart[^()]{0,100}\)/,
-    /\([^()]{0,100}?(?<judge>[\w’']*).{1,5}[JX][\.\,][^()]{0,100}?\)/,
+    /\([^()]{0,100}?(?<judge>[\w’']*).{1,5}[A-Z][\.\,][^()]{0,100}?\)/,
 
     /(?<vol>\d{1,3})\sU.{1,2}S.{1,2}(?<p>\d{1,4}).{1,2}(?<p2>\d{1,4})?-?(?<p3>\d{1,4})?.{3,25}\(/,
 
@@ -579,13 +579,24 @@ def match_data_to_db(date='2005')
     op_text = opinion['casebody']['data']['opinions']['text']
 
     #matches = op_text.to_enum(:scan, pattern).map { Regexp.last_match }
-    matches = op_text.to_enum(:scan, pattern).map { |item| {
-      regexp_match_text: Regexp.last_match[0],
-      regexp_match_index: Regexp.last_match.begin(0),
-      kase_id: kase_id,
-      op_index: op_index,
-      op_text: op_text
-    }}
+    matches = op_text.to_enum(:scan, pattern).map do |item| 
+
+      regexp_match_text = Regexp.last_match[0]
+      regexp_match_index =  Regexp.last_match.begin(0)
+
+      judges = item.to_enum(:scan, /\([^()]{0,100}?(?<judge>[\w’']*).{1,5}[A-Z][\.\,][^()]{0,100}?\)/).map {Regexp.last_match}
+      judge = judges.empty? ? nil : judges.last['judge'].downcase
+      {
+        date: opinion['decision_date'],
+        regexp_match_text: regexp_match_text,
+        regexp_match_index: regexp_match_index,
+        kase_id: kase_id,
+        op_index: op_index,
+        category: nil,
+        judge: judge,
+        op_text: op_text,
+      }
+    end
 
     next if matches.empty?
 
