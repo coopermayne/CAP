@@ -496,7 +496,7 @@ def get_justice_name(group)
   return judge
 end
 
-def match_data_to_db(date='2005')
+def match_data_to_db(date='1975')
 	#NOTE: there are a couple anomalies -- xml has a few more cits than text fore some reason...
 
 	patterns = [
@@ -636,4 +636,46 @@ def match_data_to_db(date='2005')
 
   DB[:matches].delete_many {}
   DB[:matches].insert_many rejected_matches + id_matches + good_matches + leftover_matches
+end
+
+def export_matches_to_csv
+  rows = DB[:matches].find.map do |match|
+    #case citing
+    kase = DB[:ALL].find({'_id' => match['kase_id']}).first
+    op = kase['casebody']['data']['opinions'][match['op_index']]
+   
+    #case cited to
+    cit_kase = DB[:ALL].find({'_id' => match['cit_kase_id']}).first
+    cit_op = cit_kase['casebody']['data']['opinions'][match['cit_op_index']]
+
+    {
+      :decision_date => kase['decision_date'],
+      :case_name => kase['name_abbreviation'],
+      :docket_number => kase['docket_number'],
+      :case_citation => kase['citations'].first['cite'],
+      :judge => op['author_formatted'],
+      :part_of_opinion => op['type'],
+      :dissent_citation => 'xxx',
+      :judge_cited => match['xxx'],
+      :blurb => match['blurb'],
+      :full_opinion => kase['full_opinion'],
+      :dissent_citation_raw => match['dissent_citation_raw'],
+      :judge_cited_raw => match['judge_cited_raw'],
+    }
+  end
+
+  fn = "/Users/coopermayne/Code/UCLA_Re/#{Time.now.to_i.to_s}_matches.csv"
+
+	rowid = 0
+	CSV.open(fn, 'w') do |csv|
+		rows.each do |hsh|
+			rowid += 1
+			if rowid == 1
+				csv << hsh.keys
+			else
+				puts hsh.values
+				csv << hsh.values
+			end
+		end
+	end
 end

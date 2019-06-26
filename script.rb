@@ -396,21 +396,48 @@ def cull_id_matches
 end
 
 def new_culling_method
+  c = 0
+
   pipeline = [
     {
       '$match': {
-        'category': 'id',
-        'judge': {'$ne': nil}
-      },
-    }, 
-    #{ 
-      #'$sample': {'size': 100}
-    #}
+        'category': {'$in': ['good']},
+        #'judge': {'$ne': nil}
+      }
+    },
+    {
+      '$sample': {
+        size: 100
+      }
+    }
   ]
-
+  
   DB[:matches].aggregate(pipeline).each do |match|
-    binding.pry
+    txt = match['regexp_match_text']
+    txt_i = match['regexp_match_index']
+
+    n = 200
+    longer_match = match['op_text'][txt_i-n, txt.length+n]
+
+    matches = longer_match.to_enum(:scan, /U[\.\,]\s?S/).map{Regexp.last_match} 
+
+    c += 1 if matches.empty? 
+
+    #cut off the bad match and the early part of string before U.S.
+    #cut_off_point = matches.last.begin(0)<4 ? 0 : matches.last.begin(0)-4
+    #longer_match = longer_match[cut_off_point..-1]
+
+    ##now search for the numbers
+    ##remove years and not numbers
+    #numbers = longer_match.gsub(/\(\d{4}\)/,'').gsub(/n\.\s\d+/, '').to_enum(:scan, /\d+/).map{Regexp.last_match}
+    #vol = numbers.shift
+    #page = numbers.pop
+    #next unless vol&&page
+    #res = better_find_op(vol[0],page[0])
+    #c+=1 if res
   end
+
+  ap c
 end
 
 new_culling_method
