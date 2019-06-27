@@ -397,17 +397,18 @@ end
 
 def new_culling_method
   c = 0
+  c2 = 0
 
   pipeline = [
     {
       '$match': {
-        'category': {'$in': ['good']},
-        #'judge': {'$ne': nil}
+        'category': {'$in': ['good', 'id', 'leftover']},
+        'judge': {'$ne': nil}
       }
     },
     {
       '$sample': {
-        size: 100
+        size: 1000
       }
     }
   ]
@@ -417,27 +418,133 @@ def new_culling_method
     txt_i = match['regexp_match_index']
 
     n = 200
-    longer_match = match['op_text'][txt_i-n, txt.length+n]
+
+    start_i = txt_i-n < 0 ? 0 : txt_i-n
+
+    longer_match = match['op_text'][start_i, txt.length+n]
 
     matches = longer_match.to_enum(:scan, /U[\.\,]\s?S/).map{Regexp.last_match} 
 
-    c += 1 if matches.empty? 
+    next if matches.empty?
 
     #cut off the bad match and the early part of string before U.S.
-    #cut_off_point = matches.last.begin(0)<4 ? 0 : matches.last.begin(0)-4
-    #longer_match = longer_match[cut_off_point..-1]
+    cut_off_point = matches.last.begin(0)<4 ? 0 : matches.last.begin(0)-4
+    longer_match = longer_match[cut_off_point..-1]
 
-    ##now search for the numbers
-    ##remove years and not numbers
-    #numbers = longer_match.gsub(/\(\d{4}\)/,'').gsub(/n\.\s\d+/, '').to_enum(:scan, /\d+/).map{Regexp.last_match}
-    #vol = numbers.shift
-    #page = numbers.pop
-    #next unless vol&&page
-    #res = better_find_op(vol[0],page[0])
-    #c+=1 if res
+    #now search for the numbers
+    #remove years and not numbers
+    numbers = longer_match.gsub(/\(\d{4}\)/,'').gsub(/n\.\s\d+/, '').to_enum(:scan, /\d+/).map{Regexp.last_match}
+    vol = numbers.shift
+    page = numbers.pop
+    (c2+=1; next) unless vol&&page
+    res = better_find_op(vol[0],page[0])
+
+
   end
 
   ap c
+  ap c2
 end
 
-new_culling_method
+def new_new
+  c = 0
+  pipeline = [
+    #{
+      #'$match': {
+        ##'category': {'$in': ['good', 'id', 'leftover']},
+        ##'judge': {'$eq': nil}
+      #}
+    #},
+    #{
+      #'$sample': {
+      #}
+    #}
+  ]
+  #find closest keyword [anti/e, post, id, US, supra etc ]
+
+  patterns = [
+    {title: 'us', rgx: /U[\.\,\s]\s?S[\.\,\s]/, count: 0},
+    {title: 'us2', rgx: /How\./, count: 0},
+    {title: 'us3', rgx: /Dall\./, count: 0},
+    {title: 'us4', rgx: /Wall\./, count: 0},
+    {title: 'id', rgx: /\W[iI]d/, count: 0},
+    {title: 'ibid', rgx: /\W[iI]bid/, count: 0},
+    {title: 'supra', rgx: /[sS][uw]pra/, count: 0},
+    {title: 'supra2', rgx: /stipra/, count: 0},
+    {title: 'post', rgx: /[pP]ost/, count: 0},
+    {title: 'ante', rgx: /[aA]nt[ie]/, count: 0},
+    {title: 'fed', rgx: /F[\.\,\s]\s?\dd/, count: 0},
+    {title: 'fed supp', rgx: /[fF][\.\,\s]\s?[Ss]upp/, count: 0},
+    {title: 'so', rgx: /So[\.\,\s]\s?\dd/, count: 0},
+    {title: 'tc', rgx: /T[\.\,\s]\s?C[\.\,\s]/, count: 0},
+    {title: 'nw', rgx: /[NS][\.\,\s]\s?[WE][\.\,\s]\s?\dd/, count: 0},
+    {title: 'p', rgx: /P[\.\,\s]\s?\dd/, count: 0},
+    {title: 'fed reg', rgx: /Fed\.\sReg\./, count: 0},
+    {title: 'a', rgx: /A[\.\,\s]\s?\dd/, count: 0},
+    {title: 'ca', rgx: /Cal\. \dth/, count: 0},
+    {title: 'mj', rgx: /M[\.\,\s]\s?J[\.\,\s]/, count: 0},
+    {title: 'car', rgx: /Cal\.\sRptr\./, count: 0},
+    {title: 'fedappx', rgx: /Fed\.\sAppx\./, count: 0},
+
+    #TODO pattern for citation separated by parentetical of info
+    #TODO pattern for citation separated by quotation
+
+    {title: 'paren', rgx: /[^\(]{10,}\)/, count: 0},
+  ]
+
+  capture_in_paren = [
+    /[Ll]ord/
+  ]
+  DB[:matches].aggregate(pipeline).each do |match|
+    full_text = match['op_text']
+    txt = match['regexp_match_text']
+    txt_i = match['regexp_match_index']
+
+    paren_index = txt_i + txt.last_match(/\(/).begin(0)
+    n = paren_index > 50 ? 50 : paren_index
+    before_paren = full_text[paren_index-n, n]
+
+    inside_paren = txt[txt.last_match(/\(/).begin(0), txt.length - txt.last_match(/\(/).begin(0)]
+
+    reject_in_paren = [
+      /Rep\./,
+      /[pP]ost/,
+      /[aA]nt[ie]/,
+      /hereinafter/,
+      /view/,
+      /according\sto/,
+      /as\sthe\sd/,
+    ]
+    reject_in_paren.map! do |rgx|
+      inside_paren.match rgx
+    end
+
+    #skip if we matched a bad pattern inside paren
+    (c += 1; next) unless reject_in_paren.compact.empty?
+
+    patterns_sorted = patterns
+    patterns_sorted.each do |pattern|
+      pattern['last_match'] = before_paren.last_match(pattern[:rgx])
+    end
+
+    patterns_sorted = patterns.reject{|p| p['last_match'].nil?}.sort_by{|pattern| pattern['last_match'].begin(0)}.reverse
+
+    ( c +=1; next ) if patterns_sorted.empty?
+
+    #patterns.select{|pattern| pattern[:title] == patterns_sorted.first[:title]}.first[:count]+=1
+
+    if patterns_sorted.first[:title]=='us'
+
+    elsif patterns_sorted.first[:title]=='id'
+    elsif patterns_sorted.first[:title]=='ibid'
+    elsif patterns_sorted.first[:title]=='supra'
+    elsif patterns_sorted.first[:title]=='paren'
+    end
+
+  end
+
+  #ap patterns
+
+end
+
+new_new

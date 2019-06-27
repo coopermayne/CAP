@@ -5,3 +5,9 @@ class Array
 		temp
 	end
 end
+
+class String
+  def last_match(rgx)
+    self.to_enum(:scan, rgx).map{Regexp.last_match}.last
+  end
+end
