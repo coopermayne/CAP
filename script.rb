@@ -180,7 +180,9 @@ def find_op_by_cit(vol, page)
 end
 
 def better_find_op(vol, page, judge)
-  #return an array of matching opinions
+  #returns best match op
+  #        nil if no match
+  #        array of res if multiples can't be narrowed
   
   vol = vol.to_i
   page = page.to_i
@@ -221,9 +223,6 @@ def better_find_op(vol, page, judge)
     #TODO mark ones that seem wrong (like wrong judge etc)
     return results.first
   elsif results.count > 1
-    ap '-'*80
-    ap "JUDGE: #{judge}"
-    ap results.map{|r| [r['casebody']['data']['opinions']['author_formatted'], r['casebody']['data']['opinions']['type']]}
 
     m_auth = results.select{|r|  !r['casebody']['data']['opinions']['author_formatted'].nil? && !judge.nil? && r['casebody']['data']['opinions']['author_formatted'] == judge.downcase.gsub(/[^a-z]/,'') }
     m_diss = results.select{|r|  !r['casebody']['data']['opinions']['type'].nil? && r['casebody']['data']['opinions']['type'].match(/dissent/) }
@@ -534,12 +533,11 @@ def new_new
       page = cit_str.last_match(/(?<page>\d+)/)['page']
 
       res = better_find_op(vol, page, match['judge'])
+      
+      c1 +=1
+      c2 +=1 if !res.nil? && res.class != Array
+      ap "#{c2}/#{c1}: #{( c2.to_f/c1.to_f ).round(2)*100}"
 
-      #if res.count == 0
-        #res = better_find_op(vol, page.to_i-1)
-      #end
-
-      #matches = txt.to_enum(:scan, /U[\.\,\s]\s?S/).map{Regexp.last_match} 
 
     elsif patterns_sorted.first[:title]=='id'
     elsif patterns_sorted.first[:title]=='ibid'
