@@ -679,3 +679,37 @@ def export_matches_to_csv
 		end
 	end
 end
+
+def fix_judge_guess
+  c = 0
+  DB[:matches].aggregate([]).each do |match|
+
+    full_text = match['op_text']
+    txt = match['regexp_match_text']
+    txt_i = match['regexp_match_index']
+
+    paren_index = txt_i + txt.last_match(/\(/).begin(0)
+    n = paren_index > 55 ? 55 : paren_index
+    before_paren = full_text[paren_index-n, n]
+    full_text_before_paren = full_text[0, paren_index]
+    inside_paren = txt[txt.last_match(/\(/).begin(0), txt.length - txt.last_match(/\(/).begin(0)]
+
+    ii = 1000
+    first_match = nil
+
+    JUDGES.map{|ji| ji[:last_name]}.each do |ln| 
+      ip_clean = I18n.transliterate(inside_paren.downcase).gsub(/[^a-z\s]/,'')
+      idx = ip_clean.index ln.downcase.gsub(/[^a-z\s]/,'')
+
+      next if idx.nil?
+      if idx < ii
+        first_match = ln
+        ii = idx
+      end
+    end
+
+    judge = first_match
+
+    ap DB[:matches].update_one({_id: match['_id']}, {'$set' => {judge: judge}})
+  end
+end

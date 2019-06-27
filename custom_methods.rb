@@ -11,3 +11,8 @@ class String
     self.to_enum(:scan, rgx).map{Regexp.last_match}.last
   end
 end
+
+def continue
+  print "Press any key to continue\r"
+  gets
+end

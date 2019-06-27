@@ -1,5 +1,9 @@
+require_relative 'global_variables.rb'
 require_relative 'keys.rb' #hide this file from git!
 require_relative 'custom_methods.rb' #hide this file from git!
+
+require 'i18n'
+I18n.available_locales = [:en]
 
 require 'jaro_winkler'
 require 'gruff'
@@ -175,53 +179,16 @@ def find_op_by_cit(vol, page)
   ap '-'*80
 end
 
-def better_find_op(vol, page)
+def better_find_op(vol, page, judge)
   #return an array of matching opinions
   
   vol = vol.to_i
   page = page.to_i
 
-  #TODO add conditionals to makes this all one pipeline?
-  #numberOfColors: { $cond: { if: { $isArray: "$colors" }, then: { $size: "$colors" }, else: "NA"} }
-
-	#kase_pipline = [
-		#{
-			#'$match': {
-				#'$and': [
-					#{ 'volume.volume_number': vol }, 
-          #{ 'first_page': { '$lte': page } }, 
-          #{ 'last_page': { '$gte': page } }
-				#]
-			#}
-		#},
-    #{
-      #'$project': {
-        #'id': 1, 
-        #'name_abbreviation': 1, 
-        #'volume': 1, 
-        #'author': { '$arrayElemAt': ["$casebody.data.opinions.author", 0] }, 
-        #'type': { '$arrayElemAt': ["$casebody.data.opinions.type", 0] }, 
-        #"citations": 1
-      #},
-    #}
-	#]
-
   op_pipeline = [
     {
       '$match': {
-        '$and': [
-          {
-            'volume.volume_number': vol
-          }, {
-            'first_page': {
-              '$lte': page
-            }
-          }, {
-            'last_page': {
-              '$gte': page
-            }
-          }
-        ]
+        'volume.volume_number': vol
       }
     },
     {
@@ -246,7 +213,31 @@ def better_find_op(vol, page)
     },
   ]
 
-  DB[COL].aggregate(op_pipeline)
+  results = DB[COL].aggregate(op_pipeline)
+
+  if results.count == 0
+    return nil
+  elsif results.count == 1
+    #TODO mark ones that seem wrong (like wrong judge etc)
+    return results.first
+  elsif results.count > 1
+    ap '-'*80
+    ap "JUDGE: #{judge}"
+    ap results.map{|r| [r['casebody']['data']['opinions']['author_formatted'], r['casebody']['data']['opinions']['type']]}
+
+    m_auth = results.select{|r|  !r['casebody']['data']['opinions']['author_formatted'].nil? && !judge.nil? && r['casebody']['data']['opinions']['author_formatted'] == judge.downcase.gsub(/[^a-z]/,'') }
+    m_diss = results.select{|r|  !r['casebody']['data']['opinions']['type'].nil? && r['casebody']['data']['opinions']['type'].match(/dissent/) }
+
+    if m_auth.count==1
+      return m_auth.first
+    end
+
+    if judge.nil? && m_diss.count==1
+      return m_diss.first
+    end
+    
+    return results
+  end
 end
 
 def find_misspelled_dissent
@@ -447,7 +438,8 @@ def new_culling_method
 end
 
 def new_new
-  c = 0
+  c1 = 0
+  c2 = 0
   pipeline = [
     #{
       #'$match': {
@@ -463,7 +455,7 @@ def new_new
   #find closest keyword [anti/e, post, id, US, supra etc ]
 
   patterns = [
-    {title: 'us', rgx: /U[\.\,\s]\s?S[\.\,\s]/, count: 0},
+    {title: 'us', rgx: /\d{2,3}.{1,2}U[\.\,\s]\s?S[\.\,\s]/, count: 0},
     {title: 'us2', rgx: /How\./, count: 0},
     {title: 'us3', rgx: /Dall\./, count: 0},
     {title: 'us4', rgx: /Wall\./, count: 0},
@@ -501,8 +493,9 @@ def new_new
     txt_i = match['regexp_match_index']
 
     paren_index = txt_i + txt.last_match(/\(/).begin(0)
-    n = paren_index > 50 ? 50 : paren_index
+    n = paren_index > 55 ? 55 : paren_index
     before_paren = full_text[paren_index-n, n]
+    full_text_before_paren = full_text[0, paren_index]
 
     inside_paren = txt[txt.last_match(/\(/).begin(0), txt.length - txt.last_match(/\(/).begin(0)]
 
@@ -515,25 +508,38 @@ def new_new
       /according\sto/,
       /as\sthe\sd/,
     ]
-    reject_in_paren.map! do |rgx|
-      inside_paren.match rgx
-    end
+
+    reject_in_paren.map! { |rgx| inside_paren.match rgx }
 
     #skip if we matched a bad pattern inside paren
-    (c += 1; next) unless reject_in_paren.compact.empty?
+    ( next) unless reject_in_paren.compact.empty?
 
-    patterns_sorted = patterns
-    patterns_sorted.each do |pattern|
+    #now find the first citation type
+    patterns_sorted = patterns.map do |pattern|
       pattern['last_match'] = before_paren.last_match(pattern[:rgx])
+      pattern
     end
 
-    patterns_sorted = patterns.reject{|p| p['last_match'].nil?}.sort_by{|pattern| pattern['last_match'].begin(0)}.reverse
+    patterns_sorted.reject!{|p| p['last_match'].nil?}.sort_by{|pattern| pattern['last_match'].begin(0)}.reverse
 
-    ( c +=1; next ) if patterns_sorted.empty?
+    #skip if no citation is found (TODO maybe go back further?)
+    ( next ) if patterns_sorted.empty?
 
-    #patterns.select{|pattern| pattern[:title] == patterns_sorted.first[:title]}.first[:count]+=1
-
+    #we can get or closest citation now as first in the sorted list
     if patterns_sorted.first[:title]=='us'
+
+      cit_str = before_paren[patterns_sorted.first['last_match'].begin(0)..-1].gsub(/\(.{4,5}\)/, '').gsub(/\Wn\. \d+/, '').gsub(/\Wnn.*/, '')
+
+      vol = cit_str.match(/(?<vol>\d{2,3}).{1,2}U[\.\,\s]\s?S[\.\,\s]/)['vol']
+      page = cit_str.last_match(/(?<page>\d+)/)['page']
+
+      res = better_find_op(vol, page, match['judge'])
+
+      #if res.count == 0
+        #res = better_find_op(vol, page.to_i-1)
+      #end
+
+      #matches = txt.to_enum(:scan, /U[\.\,\s]\s?S/).map{Regexp.last_match} 
 
     elsif patterns_sorted.first[:title]=='id'
     elsif patterns_sorted.first[:title]=='ibid'
@@ -545,6 +551,8 @@ def new_new
 
   #ap patterns
 
+  ap c1
+  ap c2
 end
 
 new_new
