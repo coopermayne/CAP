@@ -19,7 +19,7 @@ require 'httparty'
 require 'awesome_print'
 require 'ruby-graphviz'
 
-Mongo::Logger.logger.level = Logger::FATAL
+#Mongo::Logger.logger.level = Logger::FATAL
 
 HEADERS = {headers: { "Authorization" => "Token #{CAP_API_KEY}" }} #set in keys.rb
 DB = Mongo::Client.new(['127.0.0.1:27017'], :database => 'cases') #set in keys.rb
@@ -239,213 +239,15 @@ def better_find_op(vol, page, judge)
   end
 end
 
-def find_misspelled_dissent
-  #NOTE this didn't pick up many misspellings... 
-  
-  #Djissent, .86
-  #Dissenting, .81 (NOTE fix all regex to ignore caps!)
-  
-  pipeline = [
-    {
-      '$unwind': {
-        'path': '$casebody.data.opinions', 
-        'includeArrayIndex': 'opIndex', 
-        'preserveNullAndEmptyArrays': false
-      }
-    }
-  ]
-
-	#search all parens
-  pattern = /\((?<text>.*?)\)/
-  matches = []
-  DB[:ALL].aggregate(pipeline).each do |opinion|
-    op_text = opinion['casebody']['data']['opinions']['text']
-    all_paren_matches = op_text.to_enum(:scan, pattern).map{Regexp.last_match}
-    all_paren_matches.each do |paren_match|
-      j = paren_match['text'].gsub(/\W/, ' ').split(' ').map{|ii| [ii, JaroWinkler.jaro_distance("dissent", ii) ]}
-      r =  j.select{|i| !i[0].match(/dissent/) && i[1] > 0.80}
-      ap r unless r.empty?
-    end
-  end
-  #use fuzzy search to look for matches on "dissenting"
-  #take out any that are actually 100% matches
-  #the rest should be what we are looking for...
-end
-
-def cull_good_matches
-  col = DB[:matches] #for playing with good matches
-  c = 0
-
-  pipeline = [
-    #{'$match': {'category': 'good'}}, 
-    {'$sample': {'size': 100}}
-  ]
-  col.aggregate(pipeline).each do |match|
-    txt = match['regexp_match_text']
-    judge_guess = match['judge']
-
-    #24% not matching here... the rest are id matches
-    #6% have more than 1 match
-    matches = txt.to_enum(:scan, /U[\.\,]\s?S/).map{Regexp.last_match} 
-
-    #(ap match['regexp_match_text']) if matches.empty? #24% here, the rest are fine (these are mostly "id" and "supra" matches... )
-    next if matches.empty? 
-
-    #cut off the bad match and the early part of string before U.S.
-    cut_off_point = matches.last.begin(0)<4 ? 0 : matches.last.begin(0)-4
-    txt = txt[cut_off_point..-1]
-
-    #now search for the numbers
-    #remove years and not numbers
-    numbers = txt.gsub(/\(\d{4}\)/,'').gsub(/n\.\s\d+/, '').to_enum(:scan, /\d+/).map{Regexp.last_match}
-    vol = numbers.shift
-    page = numbers.pop
-
-    next unless vol && page
-
-    res = better_find_op(vol[0],page[0])
-
-    if res.count == 0
-      next
-    elsif res.count>1
-      #handle multiple matches by filtering for type dissent
-      res_dissents = res.select{|item| item['casebody']['data']['opinions']['type'].match /dissent/}
-
-      #handle multiple matches by filtering for judge name
-      res_match_justice_name = res.select do |item|
-        o = item['casebody']['data']['opinions']
-        unless o['author_formatted'].nil? || judge_guess.nil?
-          judge_guess.gsub(/[^a-z]/, '') == o['author_formatted'].gsub(/[^a-z]/, '')
-        else
-          false
-        end
-      end
-
-      if res_match_justice_name.count == 1
-        res = res_match_justice_name.first
-      elsif res_dissents.count == 1
-        res = res_dissents.first
-      else
-        #if we can't narrow it using name or category
-        next
-      end
-    elsif res.count==1
-      res = res.first
-    end
-    c+=1 if res && res['casebody']['data']['opinions']['author_formatted']==match['judge']
-    ap c if c%10==0
-  end
-  ap c
-end
-
-def cull_id_matches
-  #500 id
-  #250 supra
-  #250 post
-  #150 ante
-
-  c = 0
-  pipeline = [
-    {
-      '$match': {
-        'category': 'id',
-        'done': {'$ne': 1}
-      },
-    }, 
-    { 
-      '$sample': {'size': 100}
-    }
-  ]
-
-  DB[:matches].aggregate(pipeline).each do |match|
-    txt = match['regexp_match_text']
-    txt_i = match['regexp_match_index']
-    next unless txt.match /[iI]d\./
-
-    n = 200
-    longer_match = match['op_text'][txt_i-n, txt.length+n]
-
-    matches = longer_match.to_enum(:scan, /U[\.\,]\s?S/).map{Regexp.last_match} 
-
-    next if matches.empty? 
-
-    #cut off the bad match and the early part of string before U.S.
-    cut_off_point = matches.last.begin(0)<4 ? 0 : matches.last.begin(0)-4
-    longer_match = longer_match[cut_off_point..-1]
-
-    #now search for the numbers
-    #remove years and not numbers
-    numbers = longer_match.gsub(/\(\d{4}\)/,'').gsub(/n\.\s\d+/, '').to_enum(:scan, /\d+/).map{Regexp.last_match}
-    vol = numbers.shift
-    page = numbers.pop
-    next unless vol&&page
-    res = better_find_op(vol[0],page[0])
-    c+=1 if res.count>1
-  end
-  ap c
-end
-
-def new_culling_method
-  c = 0
-  c2 = 0
+def new_new
+  count_array = [0,0,0,0,0,0,0]
 
   pipeline = [
     {
       '$match': {
-        'category': {'$in': ['good', 'id', 'leftover']},
-        'judge': {'$ne': nil}
+        'cit_to': {'$exists': 0}
       }
     },
-    {
-      '$sample': {
-        size: 1000
-      }
-    }
-  ]
-  
-  DB[:matches].aggregate(pipeline).each do |match|
-    txt = match['regexp_match_text']
-    txt_i = match['regexp_match_index']
-
-    n = 200
-
-    start_i = txt_i-n < 0 ? 0 : txt_i-n
-
-    longer_match = match['op_text'][start_i, txt.length+n]
-
-    matches = longer_match.to_enum(:scan, /U[\.\,]\s?S/).map{Regexp.last_match} 
-
-    next if matches.empty?
-
-    #cut off the bad match and the early part of string before U.S.
-    cut_off_point = matches.last.begin(0)<4 ? 0 : matches.last.begin(0)-4
-    longer_match = longer_match[cut_off_point..-1]
-
-    #now search for the numbers
-    #remove years and not numbers
-    numbers = longer_match.gsub(/\(\d{4}\)/,'').gsub(/n\.\s\d+/, '').to_enum(:scan, /\d+/).map{Regexp.last_match}
-    vol = numbers.shift
-    page = numbers.pop
-    (c2+=1; next) unless vol&&page
-    res = better_find_op(vol[0],page[0])
-
-
-  end
-
-  ap c
-  ap c2
-end
-
-def new_new
-  c1 = 0
-  c2 = 0
-  pipeline = [
-    #{
-      #'$match': {
-        ##'category': {'$in': ['good', 'id', 'leftover']},
-        ##'judge': {'$eq': nil}
-      #}
-    #},
     #{
       #'$sample': {
       #}
@@ -487,6 +289,21 @@ def new_new
     /[Ll]ord/
   ]
   DB[:matches].aggregate(pipeline).each do |match|
+
+    count_array[6]+=1
+    ap count_array
+
+    set_values =  {
+      cit_to: {
+        kase_id: nil,
+        op_index: nil,
+        last_cit_type: nil,
+        no_match: nil,
+        multiple_matches: nil,
+        next: nil,
+      }
+    } #this will eventually be filled up and sent to db with info from this function
+
     full_text = match['op_text']
     txt = match['regexp_match_text']
     txt_i = match['regexp_match_index']
@@ -511,46 +328,160 @@ def new_new
     reject_in_paren.map! { |rgx| inside_paren.match rgx }
 
     #skip if we matched a bad pattern inside paren
-    ( next) unless reject_in_paren.compact.empty?
+    (count_array[0]+=1; next) unless reject_in_paren.compact.empty?
 
     #now find the first citation type
-    patterns_sorted = patterns.map do |pattern|
-      pattern['last_match'] = before_paren.last_match(pattern[:rgx])
-      pattern
+    patterns_sorted = []
+    patterns.each do |pattern|
+      h = {
+        title: pattern[:title],
+        last_match: before_paren.last_match(pattern[:rgx])
+      }
+      patterns_sorted << h
     end
 
-    patterns_sorted.reject!{|p| p['last_match'].nil?}.sort_by{|pattern| pattern['last_match'].begin(0)}.reverse
+    patterns_sorted = patterns_sorted.reject{|p| p[:last_match].nil?}.sort_by{|pattern| pattern[:last_match].begin(0)}.reverse
+      
 
     #skip if no citation is found (TODO maybe go back further?)
-    ( next ) if patterns_sorted.empty?
+    (count_array[1]+=1; next ) if patterns_sorted.empty?
+
+    set_values[:cit_to][:last_cit_type] = patterns_sorted.first[:title]
+
+    count_array[2]+=1
 
     #we can get or closest citation now as first in the sorted list
     if patterns_sorted.first[:title]=='us'
-
-      cit_str = before_paren[patterns_sorted.first['last_match'].begin(0)..-1].gsub(/\(.{4,5}\)/, '').gsub(/\Wn\. \d+/, '').gsub(/\Wnn.*/, '')
+      #52%
+      cit_str = before_paren[patterns_sorted.first[:last_match].begin(0)..-1].gsub(/\(.{4,5}\)/, '').gsub(/\Wn\. \d+/, '').gsub(/\Wnn.*/, '')
 
       vol = cit_str.match(/(?<vol>\d{2,3}).{1,2}U[\.\,\s]\s?S[\.\,\s]/)['vol']
       page = cit_str.last_match(/(?<page>\d+)/)['page']
 
       res = better_find_op(vol, page, match['judge'])
       
-      c1 +=1
-      c2 +=1 if !res.nil? && res.class != Array
-      ap "#{c2}/#{c1}: #{( c2.to_f/c1.to_f ).round(2)*100}"
-
+      #add info to set_values hash
+      if res.class == BSON::Document
+        set_values[:cit_to][:kase_id] = res[:_id]
+        set_values[:cit_to][:op_index] = res[:opIndex]
+			elsif res.class == Mongo::Collection::View::Aggregation
+        set_values[:cit_to][:multiple_matches] = res.map{|op| op[:frontend_url]}.uniq
+      elsif res.nil?
+        set_values[:cit_to][:no_match] = true
+      end
 
     elsif patterns_sorted.first[:title]=='id'
+      #16% -- just do same as for US and then go through by hand checking these carefully
+
+      page_match = before_paren[patterns_sorted.first[:last_match].begin(0)..-1].gsub(/\(.{4,5}\)/, '').gsub(/\Wn\. \d+/, '').gsub(/\Wnn.*/, '').last_match(/(?<page>\d+)/)
+      page = page_match.nil? ? nil : page_match['page']
+
+      #find last non-id citation
+      id_patterns_sorted = []
+      patterns.reject{|pattern| ['id'].include? pattern[:title] }.each do |pattern|
+        id_patterns_sorted << {
+          title: pattern[:title],
+          last_match: full_text_before_paren.last_match(pattern[:rgx])
+        }
+      end
+
+      id_patterns_sorted = id_patterns_sorted.reject{|p| p[:last_match].nil?}.sort_by{|pattern| pattern[:last_match].begin(0)}.reverse
+
+      #if last is us then grab the volume and repsonse from better_find_op
+      if id_patterns_sorted.first[:title].match /^us/
+
+        vol_match = full_text_before_paren.last_match(/(?<vol>\d{2,3}).{1,2}U[\.\,\s]\s?S[\.\,\s]/)
+        vol = vol_match.nil? ? nil : full_text_before_paren.last_match(/(?<vol>\d{2,3}).{1,2}U[\.\,\s]\s?S[\.\,\s]/)['vol']
+
+        res = better_find_op(vol, page, match['judge'])
+
+        #add info to set_values hash
+        if res.class == BSON::Document
+          set_values[:cit_to][:kase_id] = res[:_id]
+          set_values[:cit_to][:op_index] = res[:opIndex]
+        elsif res.class == Mongo::Collection::View::Aggregation
+          set_values[:cit_to][:no_match] = res.map{|op| op[:frontend_url]}.uniq
+        elsif res.nil?
+          set_values[:cit_to][:no_match] = true
+        else
+          set_values[:cit_to][:no_match] = true
+        end
+      else
+        set_values[:cit_to][:next] = id_patterns_sorted.first[:title]
+      end
+
     elsif patterns_sorted.first[:title]=='ibid'
     elsif patterns_sorted.first[:title]=='supra'
+      #8%
     elsif patterns_sorted.first[:title]=='paren'
+    else
+      #22%
     end
 
+
+    #get paragraph text
+    mcounter=0
+    paragraph = full_text.split("\n").select do |paragraph|
+      mcounter_old = mcounter
+      mcounter += paragraph.length
+      txt_i > mcounter_old && txt_i < mcounter
+    end.first
+
+    set_values[:cit_to][:paragraph] = paragraph
+
+    ap DB[:matches].update_one({'_id' => match['_id']}, {'$set' => set_values})
+
+    #ap count_array.map{|item| (item.to_f/count_array.inject{|x, sum| sum+x}.to_f).round(2)*100}
   end
 
-  #ap patterns
-
-  ap c1
-  ap c2
 end
 
-new_new
+def save_matches_to_csv
+  rows = DB[:matches].find.map do |match|
+    #case citing
+    kase = DB[:ALL].find({'_id' => match['kase_id']}).first
+    op = kase['casebody']['data']['opinions'][match['op_index']]
+   
+    #case cited to
+    cit_kase = DB[:ALL].find({'_id' => match['cit_to']['kase_id']}).first
+    cit_op = cit_kase['casebody']['data']['opinions'][match['cit_to']['opIndex']]
+
+    {
+      :decision_date => kase['decision_date'],
+      :case_name => kase['name_abbreviation'],
+      :docket_number => kase['docket_number'],
+      :case_citation => kase['citations'].first['cite'],
+      :judge => op['author_formatted'],
+      :part_of_opinion => op['type'],
+
+      :d_citation_raw => match['dissent_citation_raw'],
+      :d_judge => match['judge'],
+      :d_judge2 => cit_op['author_formatted'],
+      :d_citation => cit_kase['citations'].first['cite'],
+      :d_case_name => cit_kase['name_abbreviation'],
+      :d_blurb => match['cit_to']['paragraph'],
+      :d_last_cit_type => match['cit_to']['last_cit_type'],
+      :d_mult_matches => match['cit_to']['multiple_matches'],
+      :d_no_match => match['cit_to']['no_match'],
+
+      :full_opinion => kase['frontend_url'],
+    }
+  end
+
+  fn = "/Users/coopermayne/Code/UCLA_Re/#{Time.now.to_i.to_s}_matches.csv"
+
+	rowid = 0
+	CSV.open(fn, 'w') do |csv|
+		rows.each do |hsh|
+			rowid += 1
+			if rowid == 1
+				csv << hsh.keys
+			else
+				puts hsh.values
+				csv << hsh.values
+			end
+		end
+	end
+end
+
+save_matches_to_csv

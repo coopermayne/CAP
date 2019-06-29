@@ -713,3 +713,36 @@ def fix_judge_guess
     ap DB[:matches].update_one({_id: match['_id']}, {'$set' => {judge: judge}})
   end
 end
+
+def find_misspelled_dissent
+  #NOTE this didn't pick up many misspellings... 
+  
+  #Djissent, .86
+  #Dissenting, .81 (NOTE fix all regex to ignore caps!)
+  
+  pipeline = [
+    {
+      '$unwind': {
+        'path': '$casebody.data.opinions', 
+        'includeArrayIndex': 'opIndex', 
+        'preserveNullAndEmptyArrays': false
+      }
+    }
+  ]
+
+	#search all parens
+  pattern = /\((?<text>.*?)\)/
+  matches = []
+  DB[:ALL].aggregate(pipeline).each do |opinion|
+    op_text = opinion['casebody']['data']['opinions']['text']
+    all_paren_matches = op_text.to_enum(:scan, pattern).map{Regexp.last_match}
+    all_paren_matches.each do |paren_match|
+      j = paren_match['text'].gsub(/\W/, ' ').split(' ').map{|ii| [ii, JaroWinkler.jaro_distance("dissent", ii) ]}
+      r =  j.select{|i| !i[0].match(/dissent/) && i[1] > 0.80}
+      ap r unless r.empty?
+    end
+  end
+  #use fuzzy search to look for matches on "dissenting"
+  #take out any that are actually 100% matches
+  #the rest should be what we are looking for...
+end
