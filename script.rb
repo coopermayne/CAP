@@ -437,16 +437,27 @@ def new_new
 end
 
 def save_matches_to_csv
-  rows = DB[:matches].find.map do |match|
+  pipeline = [{'$match': {'cit_to': {'$exists': 1}}}]
+  #pipeline = [{'$match': {'cit_to': {'$exists': 1}}},{'$sample': {'size': 100}}]
+  rows = DB[:matches].aggregate(pipeline).map do |match|
+      
     #case citing
     kase = DB[:ALL].find({'_id' => match['kase_id']}).first
     op = kase['casebody']['data']['opinions'][match['op_index']]
    
     #case cited to
     cit_kase = DB[:ALL].find({'_id' => match['cit_to']['kase_id']}).first
-    cit_op = cit_kase['casebody']['data']['opinions'][match['cit_to']['opIndex']]
+    cit_kase = {} if cit_kase.nil?
+    begin
+      cit_op = cit_kase['casebody']['data']['opinions'][match['cit_to']['op_index']]
+    rescue
+      cit_op = {} if cit_op.nil?
+    end
 
     {
+      #for potential updates
+      :_id => match['_id']
+      #kase info
       :decision_date => kase['decision_date'],
       :case_name => kase['name_abbreviation'],
       :docket_number => kase['docket_number'],
@@ -454,15 +465,21 @@ def save_matches_to_csv
       :judge => op['author_formatted'],
       :part_of_opinion => op['type'],
 
-      :d_citation_raw => match['dissent_citation_raw'],
-      :d_judge => match['judge'],
-      :d_judge2 => cit_op['author_formatted'],
-      :d_citation => cit_kase['citations'].first['cite'],
+      #cit case info
+      :d_judge_from_scrape => match['judge'],
+      :d_judge_from_match => cit_op['author_formatted'],
+      :d_citation => cit_kase['cite'],
       :d_case_name => cit_kase['name_abbreviation'],
+
+      #blurb
       :d_blurb => match['cit_to']['paragraph'],
+      :d_matching_txt => match['regexp_match_text'],
       :d_last_cit_type => match['cit_to']['last_cit_type'],
       :d_mult_matches => match['cit_to']['multiple_matches'],
       :d_no_match => match['cit_to']['no_match'],
+      :d_category => match['category'],
+
+      :full_opinion => kase['frontend_url'],
 
       :full_opinion => kase['frontend_url'],
     }
