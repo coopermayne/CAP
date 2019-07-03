@@ -300,6 +300,8 @@ def new_new
         last_cit_type: nil,
         no_match: nil,
         multiple_matches: nil,
+        vol: nil,
+        page: nil,
         next: nil,
       }
     } #this will eventually be filled up and sent to db with info from this function
@@ -400,7 +402,7 @@ def new_new
           set_values[:cit_to][:kase_id] = res[:_id]
           set_values[:cit_to][:op_index] = res[:opIndex]
         elsif res.class == Mongo::Collection::View::Aggregation
-          set_values[:cit_to][:no_match] = res.map{|op| op[:frontend_url]}.uniq
+          set_values[:cit_to][:multiple_matches] = res.map{|op| op[:frontend_url]}.uniq
         elsif res.nil?
           set_values[:cit_to][:no_match] = true
         else
@@ -456,13 +458,14 @@ def save_matches_to_csv
 
     {
       #for potential updates
-      :_id => match['_id']
+      :_id => match['_id'],
       #kase info
       :decision_date => kase['decision_date'],
       :case_name => kase['name_abbreviation'],
       :docket_number => kase['docket_number'],
       :case_citation => kase['citations'].first['cite'],
-      :judge => op['author_formatted'],
+      :author => op['author'],
+      :author_formatted => op['author_formatted'],
       :part_of_opinion => op['type'],
 
       #cit case info
@@ -477,6 +480,7 @@ def save_matches_to_csv
       :d_last_cit_type => match['cit_to']['last_cit_type'],
       :d_mult_matches => match['cit_to']['multiple_matches'],
       :d_no_match => match['cit_to']['no_match'],
+      :d_next => match['cit_to']['next'],
       :d_category => match['category'],
 
       :full_opinion => kase['frontend_url'],
@@ -501,4 +505,4 @@ def save_matches_to_csv
 	end
 end
 
-save_matches_to_csv
+match_concurrences_to_db(date='1975')
