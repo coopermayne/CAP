@@ -61,9 +61,18 @@ def guess_scotus_judge
       { i: i, name: judge_name }
     end
 
-    judges.reject!{|judge| judge[:i].nil?}
-    set_values = {judgeGuessFromMatchText: judges.sort_by{|judge| judge[:i]}.first}
+    judges.reject!{|j| j[:i].nil?}
+    judges.sort_by!{|j| j[:i]}.map!{|j| judge[:last_name]}
+    set_values = {judgeGuessFromMatchText: judges.first}
 
     DB[:all_matches].update_one({_id: match[:_id]},{'$set': set_values})
   end
 end
+
+#def recursive_citation_search(string)
+  #take a string as input
+
+  #look for last citation
+  #if id or supra look for referenced citation
+  
+#end
