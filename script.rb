@@ -525,4 +525,4 @@ def import_data_from_sheet
 	end
 end
 
-generate_dissent_and_concurrences_matches
+add_dissent_concurrence_boolean

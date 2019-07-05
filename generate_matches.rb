@@ -42,3 +42,14 @@ def generate_dissent_and_concurrences_matches
     DB[:all_matches].insert_many(matches)
   end
 end
+
+def add_dissent_concurrence_boolean
+  DB[:all_matches].find.each do |match|
+    set_values = {
+      concur: match['regexpMatchText'].match(/concur/) ? true : false ,
+      dissent: match['regexpMatchText'].match(/dissent/) ? true : false
+    }
+
+    DB[:all_matches].update_one({_id: match['_id']}, {'$set': set_values})
+  end
+end
