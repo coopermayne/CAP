@@ -525,6 +525,4 @@ def import_data_from_sheet
 	end
 end
 
-guess_scotus_judge
-
-
+get_citations_before_matches

@@ -68,10 +68,105 @@ def guess_scotus_judge
   end
 end
 
-#def recursive_citation_search(string)
+def recursive_citation_search(op_text, index, extra_info={})
   #take a string as input
+
+  patterns = [
+    {title: 'us', rgx: /\d{2,3}.{1,2}U.{0,2}S[\.\,\s]/, count: 0},
+    {title: 'us', rgx: /How\./, count: 0},
+    {title: 'us', rgx: /Dall\./, count: 0},
+    {title: 'us', rgx: /Wall\./, count: 0},
+    {title: 'id', rgx: /\W[iI]d/, count: 0},
+    {title: 'ibid', rgx: /\W[iI]bid/, count: 0},
+    {title: 'supra', rgx: /[sS][uw]pra/, count: 0},
+    {title: 'supra', rgx: /stipra/, count: 0},
+    {title: 'post', rgx: /[pP]ost/, count: 0},
+    {title: 'ante', rgx: /[aA]nt[ie]/, count: 0},
+    {title: 'fed', rgx: /F[\.\,\s]\s?\dd/, count: 0},
+    {title: 'fed supp', rgx: /[fF][\.\,\s]\s?[Ss]upp/, count: 0},
+    {title: 'so', rgx: /So[\.\,\s]\s?\dd/, count: 0},
+    {title: 'tc', rgx: /T[\.\,\s]\s?C[\.\,\s]/, count: 0},
+    {title: 'nw', rgx: /[NS][\.\,\s]\s?[WE][\.\,\s]\s?\dd/, count: 0},
+    {title: 'p', rgx: /P[\.\,\s]\s?\dd/, count: 0},
+    {title: 'fed reg', rgx: /Fed\.\sReg\./, count: 0},
+    {title: 'a', rgx: /A[\.\,\s]\s?\dd/, count: 0},
+    {title: 'ca', rgx: /Cal\. \dth/, count: 0},
+    {title: 'mj', rgx: /M[\.\,\s]\s?J[\.\,\s]/, count: 0},
+    {title: 'car', rgx: /Cal\.\sRptr\./, count: 0},
+    {title: 'fedappx', rgx: /Fed\.\sAppx\./, count: 0},
+
+    #{title: 'paren', rgx: /[^\(]{10,}\)/, count: 0},
+  ]
+
+  last_match = nil
+  keep_searching = true
+  id = false
+  loop_index = index
+
+  while keep_searching
+    op_text_cut = op_text[0..loop_index]
+
+    patterns_sorted = []
+    patterns.each do |pattern|
+      h = {
+        title: pattern[:title],
+        last_match: op_text_cut.last_match(pattern[:rgx])
+      }
+      patterns_sorted << h
+    end
+
+    patterns_sorted = patterns_sorted.reject{|p| p[:last_match].nil?}.sort_by{|pattern| pattern[:last_match].begin(0)}.reverse
+
+    last_match = patterns_sorted.first
+    break if last_match.nil? #end if no matches at all
+    id=true if last_match[:title]=='id'
+    keep_searching = false unless last_match[:title]=='id'
+
+    loop_index = last_match[:last_match].begin(0)
+    ap [loop_index, last_match[:title]]
+  end
+
+  ap op_text[index-500..index+extra_info[:match][:matchText].length]
+  ap last_match
+  ap extra_info[:match][:judgeGuessFromMatchText]
+
+  last_match.nil? ? nil : last_match[:title]
 
   #look for last citation
   #if id or supra look for referenced citation
   
-#end
+end
+
+def get_citations_before_matches
+	pipeline = [
+    #for testing only
+    {
+      '$match': {
+        'rejected': {'$ne': true}
+      }
+    },
+    {
+      '$sample': {
+        'size': 1000
+      }
+    },
+		{
+			'$lookup': {
+				'from': 'ALL', 
+				'localField': 'kaseId', 
+				'foreignField': '_id', 
+				'as': 'kase'
+			}
+		}
+	]
+
+  results = Hash.new(0)
+
+  DB[:all_matches].aggregate(pipeline).each do |match|
+    op_text = match[:kase].first[:casebody][:data][:opinions][match[:opIndex]][:text]
+    res = recursive_citation_search(op_text, match[:matchIndex], {match: match})
+    results[res] += 1 
+  end
+
+  ap results
+end
