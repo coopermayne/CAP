@@ -58,11 +58,10 @@ def guess_scotus_judge
       judge_name = clean_judge_name(judge_name)
       match_text = clean_judge_name(match[:matchText])
       i = match_text.index(judge_name)
-      { i: i, name: judge_name }
+      { i: i, last_name: judge_name }
     end
 
-    judges.reject!{|j| j[:i].nil?}
-    judges.sort_by!{|j| j[:i]}.map!{|j| judge[:last_name]}
+    judges = judges.reject{|j| j[:i].nil?}.sort_by{|j| j[:i]}.map{|j| j[:last_name]}
     set_values = {judgeGuessFromMatchText: judges.first}
 
     DB[:all_matches].update_one({_id: match[:_id]},{'$set': set_values})
