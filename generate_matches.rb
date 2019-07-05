@@ -35,21 +35,12 @@ def generate_dissent_and_concurrences_matches
 			{
 				kaseId: kase_id,
 				opIndex: op_index,
-				regexpMatchText: regexp_match_text,
-				regexpMatchIndex: regexp_match_index,
+				matchText: regexp_match_text,
+				matchIndex: regexp_match_index,
+        concur: regexp_match_text.match(/concur/) ? true : false ,
+        dissent: regexp_match_text.match(/dissent/) ? true : false
 			}
     end
     DB[:all_matches].insert_many(matches)
-  end
-end
-
-def add_dissent_concurrence_boolean
-  DB[:all_matches].find.each do |match|
-    set_values = {
-      concur: match['regexpMatchText'].match(/concur/) ? true : false ,
-      dissent: match['regexpMatchText'].match(/dissent/) ? true : false
-    }
-
-    DB[:all_matches].update_one({_id: match['_id']}, {'$set': set_values})
   end
 end
