@@ -525,4 +525,5 @@ def import_data_from_sheet
 	end
 end
 
-get_citations_before_matches
+#get_citations_before_matches
+reject_some

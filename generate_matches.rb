@@ -170,3 +170,61 @@ def get_citations_before_matches
 
   ap results
 end
+
+def reject_some
+  pipeline = [
+    {
+      '$match': {
+        'rejected': {'$ne': true}
+      }
+    },
+    #{
+      #'$sample': {
+        #'size': 500
+      #}
+    #},
+    {
+      '$lookup': {
+        'from': 'ALL', 
+        'localField': 'kaseId', 
+        'foreignField': '_id', 
+        'as': 'kase'
+      }
+    }
+  ]
+
+  reject_pattern_in_paren = [
+    /\WRep\./,
+    /\W[pP]ost/,
+    /\W[aA]nt[ie]/,
+    /\Whereinafter/,
+    /\Wview/,
+    /\Waccording\sto/,
+    /\Was\sthe\sd/,
+    /\(with/,
+    /\Wconcurrent/,
+    /\(one\sjudge/,
+    /\WHouse/,
+  ]
+
+  DB[:all_matches].aggregate(pipeline).each do |match|
+    reject = false
+    reject_pattern_in_paren.each do |rgx|
+      reject = true if match[:matchText].match rgx
+    end
+
+    set_values = {reject: reject}
+
+    DB[:all_matches].update_one({'_id': match['_id']}, {'$set': set_values})
+  end
+
+end
+
+#TODO 
+#(Mr. Justice Holmes, dissenting, in Southern Pacific Co. v. Jensen, 244 U. S. 205, 222)
+    #get citaitons in parens
+# Olmstead v. United States, (dissent)
+    # maybe do a regex with the 'v'
+
+#TODO 
+#write function to guess at supra citaitons
