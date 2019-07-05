@@ -44,3 +44,27 @@ def generate_dissent_and_concurrences_matches
     DB[:all_matches].insert_many(matches)
   end
 end
+
+def guess_scotus_judge
+  #this just pick the first scotus judge mentioned
+  #
+  DB[:all_matches].find.each do |match|
+
+    judges = JUDGES.map{|j|j[:last_name]}.uniq.map do |judge_name|
+      judge_name = judge_name.downcase.gsub(/[^a-z]/, '')
+      match_text = match[:matchText].downcase.gsub(/[^a-z]/, '')
+      i = match_text.index(judge_name)
+      {
+        i: i,
+        name: judge_name
+      }
+    end
+
+    judges.reject!{|judge| judge[:i].nil?}
+    set_values = {judgeGuessFromMatchText: judges.sort_by{|judge| judge[:i]}.first}
+    ap match[:matchText]
+    ap set_values
+
+    DB[:all_matches].update_one({_id: match[:_id]},{'$set': set_values})
+  end
+end
