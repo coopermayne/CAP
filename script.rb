@@ -1,6 +1,8 @@
 require_relative 'global_variables.rb'
 require_relative 'keys.rb' #hide this file from git!
 require_relative 'custom_methods.rb' #hide this file from git!
+require_relative 'generate_matches.rb' 
+
 
 require 'i18n'
 I18n.available_locales = [:en]
@@ -440,7 +442,6 @@ end
 
 def save_matches_to_csv
   pipeline = [{'$match': {'cit_to': {'$exists': 1}}}]
-  #pipeline = [{'$match': {'cit_to': {'$exists': 1}}},{'$sample': {'size': 100}}]
   rows = DB[:matches].aggregate(pipeline).map do |match|
       
     #case citing
@@ -485,7 +486,6 @@ def save_matches_to_csv
 
       :full_opinion => kase['frontend_url'],
 
-      :full_opinion => kase['frontend_url'],
     }
   end
 
@@ -505,4 +505,24 @@ def save_matches_to_csv
 	end
 end
 
-match_concurrences_to_db(date='1975')
+def import_data_from_sheet
+	csv_text = File.read('new_data.csv')
+	csv = CSV.parse(csv_text, :headers => true)
+	csv.each do |row|
+		binding.pry
+    {
+      #for potential updates
+      :_id => match['_id'],
+
+      #cit case info
+      :d_judge_from_match => cit_op['author_formatted'],
+      :d_citation => cit_kase['cite'],
+      :d_case_name => cit_kase['name_abbreviation'],
+
+    }
+
+    #DB[:matches].update_one({'_id' => match['_id']}, {'$set' => set_values})
+	end
+end
+
+generate_dissent_and_concurrences_matches
