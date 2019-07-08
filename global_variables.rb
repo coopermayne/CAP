@@ -408,12 +408,6 @@ JUDGES = [
     dates: '( 06/05/1916 - 02/13/1939 )	'
   },
   {
-    id: 'JHClarke',
-    last_name: 'Clarke',
-    first_name: 'John',
-    dates: '( 10/09/1916 - 09/18/1922 )	'
-  },
-  {
     id: 'WHTaft',
     last_name: 'Taft',
     first_name: 'William',
@@ -460,6 +454,12 @@ JUDGES = [
     last_name: 'Cardozo',
     first_name: 'Benjamin',
     dates: '( 03/14/1932 - 07/09/1938 )	'
+  },
+  {
+    id: 'HABlackmun',
+    last_name: 'Blackmun',
+    first_name: 'Harry',
+    dates: '( 06/09/1970 - 08/03/1994 )	'
   },
   {
     id: 'HLBlack',
@@ -520,6 +520,12 @@ JUDGES = [
     last_name: 'Vinson',
     first_name: 'Fred',
     dates: '( 06/24/1946 - 09/08/1953 )	'
+  },
+  {
+    id: 'JHClarke',
+    last_name: 'Clarke',
+    first_name: 'John',
+    dates: '( 10/09/1916 - 09/18/1922 )	'
   },
   {
     id: 'TCClark',
@@ -592,12 +598,6 @@ JUDGES = [
     last_name: 'Burger',
     first_name: 'Warren',
     dates: '( 06/23/1969 - 09/26/1986 )	'
-  },
-  {
-    id: 'HABlackmun',
-    last_name: 'Blackmun',
-    first_name: 'Harry',
-    dates: '( 06/09/1970 - 08/03/1994 )	'
   },
   {
     id: 'LFPowell',

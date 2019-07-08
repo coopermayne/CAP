@@ -68,121 +68,14 @@ def guess_scotus_judge
   end
 end
 
-def recursive_citation_search(op_text, index, extra_info={})
-  #take a string as input
-
-  patterns = [
-    {title: 'us', rgx: /\d{2,3}.{1,2}U.{0,2}S[\.\,\s]/, count: 0},
-    {title: 'us', rgx: /How\./, count: 0},
-    {title: 'us', rgx: /Dall\./, count: 0},
-    {title: 'us', rgx: /Wall\./, count: 0},
-    {title: 'id', rgx: /\W[iI]d/, count: 0},
-    {title: 'ibid', rgx: /\W[iI]bid/, count: 0},
-    {title: 'supra', rgx: /[sS][uw]pra/, count: 0},
-    {title: 'supra', rgx: /stipra/, count: 0},
-    {title: 'post', rgx: /[pP]ost/, count: 0},
-    {title: 'ante', rgx: /[aA]nt[ie]/, count: 0},
-    {title: 'fed', rgx: /F[\.\,\s]\s?\dd/, count: 0},
-    {title: 'fed supp', rgx: /[fF][\.\,\s]\s?[Ss]upp/, count: 0},
-    {title: 'so', rgx: /So[\.\,\s]\s?\dd/, count: 0},
-    {title: 'tc', rgx: /T[\.\,\s]\s?C[\.\,\s]/, count: 0},
-    {title: 'nw', rgx: /[NS][\.\,\s]\s?[WE][\.\,\s]\s?\dd/, count: 0},
-    {title: 'p', rgx: /P[\.\,\s]\s?\dd/, count: 0},
-    {title: 'fed reg', rgx: /Fed\.\sReg\./, count: 0},
-    {title: 'a', rgx: /A[\.\,\s]\s?\dd/, count: 0},
-    {title: 'ca', rgx: /Cal\. \dth/, count: 0},
-    {title: 'mj', rgx: /M[\.\,\s]\s?J[\.\,\s]/, count: 0},
-    {title: 'car', rgx: /Cal\.\sRptr\./, count: 0},
-    {title: 'fedappx', rgx: /Fed\.\sAppx\./, count: 0},
-
-    #{title: 'paren', rgx: /[^\(]{10,}\)/, count: 0},
-  ]
-
-  last_match = nil
-  keep_searching = true
-  id = false
-  loop_index = index
-
-  while keep_searching
-    op_text_cut = op_text[0..loop_index]
-
-    patterns_sorted = []
-    patterns.each do |pattern|
-      h = {
-        title: pattern[:title],
-        last_match: op_text_cut.last_match(pattern[:rgx])
-      }
-      patterns_sorted << h
-    end
-
-    patterns_sorted = patterns_sorted.reject{|p| p[:last_match].nil?}.sort_by{|pattern| pattern[:last_match].begin(0)}.reverse
-
-    last_match = patterns_sorted.first
-    break if last_match.nil? #end if no matches at all
-    id=true if last_match[:title]=='id'
-    keep_searching = false unless last_match[:title]=='id'
-
-    loop_index = last_match[:last_match].begin(0)
-    ap [loop_index, last_match[:title]]
-  end
-
-  ap op_text[index-500..index+extra_info[:match][:matchText].length]
-  ap last_match
-  ap extra_info[:match][:judgeGuessFromMatchText]
-
-  last_match.nil? ? nil : last_match[:title]
-
-  #look for last citation
-  #if id or supra look for referenced citation
-  
-end
-
-def get_citations_before_matches
-	pipeline = [
-    #for testing only
-    {
-      '$match': {
-        'rejected': {'$ne': true}
-      }
-    },
-    {
-      '$sample': {
-        'size': 1000
-      }
-    },
-		{
-			'$lookup': {
-				'from': 'ALL', 
-				'localField': 'kaseId', 
-				'foreignField': '_id', 
-				'as': 'kase'
-			}
-		}
-	]
-
-  results = Hash.new(0)
-
-  DB[:all_matches].aggregate(pipeline).each do |match|
-    op_text = match[:kase].first[:casebody][:data][:opinions][match[:opIndex]][:text]
-    res = recursive_citation_search(op_text, match[:matchIndex], {match: match})
-    results[res] += 1 
-  end
-
-  ap results
-end
-
 def reject_some
+  #TODO can we reject more? this is only getting 300!
   pipeline = [
     {
       '$match': {
-        'rejected': {'$ne': true}
+        'reject': false
       }
     },
-    #{
-      #'$sample': {
-        #'size': 500
-      #}
-    #},
     {
       '$lookup': {
         'from': 'ALL', 
@@ -215,10 +108,234 @@ def reject_some
 
     set_values = {reject: reject}
 
-    DB[:all_matches].update_one({'_id': match['_id']}, {'$set': set_values})
+    #DB[:all_matches].update_one({'_id': match['_id']}, {'$set': set_values})
   end
 
 end
+
+def recursive_citation_search(op_text, index, extra_info={})
+  #take a string as input
+
+  patterns = [
+    {title: 'us', rgx: /(?<vol>\d{2,3}).{1,2}U.{0,2}S[\.\,\s]/, count: 0},
+    {title: 'us', rgx: /(?<vol>\d+)\sHow\./, count: 0},
+    {title: 'us', rgx: /(?<vol>\d+)\sDall\./, count: 0},
+    {title: 'us', rgx: /(?<vol>\d+)\sWall\./, count: 0},
+    {title: 'id', rgx: /\W[iI]d/, count: 0},
+    {title: 'id', rgx: /\W[iI]bid/, count: 0},
+    {title: 'supra', rgx: /[sS][uw]pra/, count: 0},
+    {title: 'supra', rgx: /stipra/, count: 0},
+    {title: 'post', rgx: /[pP]ost/, count: 0},
+    {title: 'ante', rgx: /[aA]nt[ie]/, count: 0},
+    {title: 'fed', rgx: /F[\.\,\s]\s?\dd/, count: 0},
+    {title: 'fed supp', rgx: /[fF][\.\,\s]\s?[Ss]upp/, count: 0},
+    {title: 'so', rgx: /So[\.\,\s]\s?\dd/, count: 0},
+    {title: 'tc', rgx: /T[\.\,\s]\s?C[\.\,\s]/, count: 0},
+    {title: 'nw', rgx: /[NS][\.\,\s]\s?[WE][\.\,\s]\s?\dd/, count: 0},
+    {title: 'p', rgx: /P[\.\,\s]\s?\dd/, count: 0},
+    {title: 'fed reg', rgx: /Fed\.\sReg\./, count: 0},
+    {title: 'a', rgx: /A[\.\,\s]\s?\dd/, count: 0},
+    {title: 'ca', rgx: /Cal\. \dth/, count: 0},
+    {title: 'mj', rgx: /M[\.\,\s]\s?J[\.\,\s]/, count: 0},
+    {title: 'car', rgx: /Cal\.\sRptr\./, count: 0},
+    {title: 'fedappx', rgx: /Fed\.\sAppx\./, count: 0},
+    {title: 'fpc', rgx: /\d+\sF.{1,2}P.{1,2}C/, count: 0},
+
+    #{title: 'paren', rgx: /[^\(]{10,}\)/, count: 0},
+  ]
+
+  last_match = nil
+  keep_searching = true
+  id = false
+  loop_index = index
+
+  while keep_searching
+    op_text_cut = op_text[0..loop_index]
+
+    patterns_sorted = []
+    patterns.each do |pattern|
+      h = {
+        title: pattern[:title],
+        last_match: op_text_cut.last_match(pattern[:rgx])
+      }
+      patterns_sorted << h
+    end
+
+    patterns_sorted = patterns_sorted.reject{|p| p[:last_match].nil?}.sort_by{|pattern| pattern[:last_match].begin(0)}.reverse
+
+    last_match = patterns_sorted.first
+    break if last_match.nil? #end if no matches at all
+    id=true if last_match[:title]=='id'
+    keep_searching = false unless last_match[:title]=='id'
+
+    loop_index = last_match[:last_match].begin(0)
+  end
+
+  #ap op_text[index-500..index+extra_info[:match][:matchText].length]
+
+  {
+    last_match: last_match.nil? ? nil : last_match,
+    id_match: id
+  }
+
+  #look for last citation
+  #if id or supra look for referenced citation
+  
+end
+
+def get_first_citation(input_string)
+  #return first citation from string
+  patterns = [
+    {title: 'us', rgx: /(?<vol>\d{2,3}).{1,2}U.{0,2}S[\.\,\s]\s?(?<page>\d+)/, count: 0},
+    {title: 'us', rgx: /(?<vol>\d+)\sHow\./, count: 0},
+    {title: 'us', rgx: /(?<vol>\d+)\sDall\./, count: 0},
+    {title: 'us', rgx: /(?<vol>\d+)\sWall\./, count: 0},
+    {title: 'id', rgx: /\W[iI]d/, count: 0},
+    {title: 'id', rgx: /\W[iI]bid/, count: 0},
+    {title: 'supra', rgx: /[sS][uw]pra/, count: 0},
+    {title: 'supra', rgx: /stipra/, count: 0},
+    {title: 'post', rgx: /[pP]ost/, count: 0},
+    {title: 'ante', rgx: /[aA]nt[ie]/, count: 0},
+    {title: 'fed', rgx: /F[\.\,\s]\s?\dd/, count: 0},
+    {title: 'fed supp', rgx: /[fF][\.\,\s]\s?[Ss]upp/, count: 0},
+    {title: 'so', rgx: /So[\.\,\s]\s?\dd/, count: 0},
+    {title: 'tc', rgx: /T[\.\,\s]\s?C[\.\,\s]/, count: 0},
+    {title: 'nw', rgx: /[NS][\.\,\s]\s?[WE][\.\,\s]\s?\dd/, count: 0},
+    {title: 'p', rgx: /P[\.\,\s]\s?\dd/, count: 0},
+    {title: 'fed reg', rgx: /Fed\.\sReg\./, count: 0},
+    {title: 'a', rgx: /A[\.\,\s]\s?\dd/, count: 0},
+    {title: 'ca', rgx: /Cal\. \dth/, count: 0},
+    {title: 'mj', rgx: /M[\.\,\s]\s?J[\.\,\s]/, count: 0},
+    {title: 'car', rgx: /Cal\.\sRptr\./, count: 0},
+    {title: 'fedappx', rgx: /Fed\.\sAppx\./, count: 0},
+    {title: 'fpc', rgx: /\d+\sF.{1,2}P.{1,2}C/, count: 0},
+
+    #{title: 'paren', rgx: /[^\(]{10,}\)/, count: 0},
+  ]
+
+  sorted_patterns = []
+  patterns.each do |pattern|
+    next if input_string.match(pattern[:rgx]).nil?
+
+    h = {
+      title: pattern[:title],
+      rgx: pattern[:rgx],
+      match: input_string.match(pattern[:rgx]),
+      idx: input_string.match(pattern[:rgx]).begin(0)
+    }
+    sorted_patterns << h
+  end
+
+  sorted_patterns.reject{|h| !h[:idx].nil?}.sort_by!{|h| h[:idx]}
+
+  return sorted_patterns.first
+end
+
+def get_citations_before_matches
+  cs = Hash.new(0)
+
+	pipeline = [
+    #for testing only
+    {
+      '$match': {
+        'reject': false
+      }
+    },
+    {
+      '$sample': {
+        'size': 1000
+      }
+    },
+		{
+			'$lookup': {
+				'from': 'ALL', 
+				'localField': 'kaseId', 
+				'foreignField': '_id', 
+				'as': 'kase'
+			}
+		}
+	]
+
+  results = Hash.new(0)
+
+  DB[:all_matches].aggregate(pipeline).each do |match|
+    op_text = match[:kase].first[:casebody][:data][:opinions][match[:opIndex]][:text]
+    index = match[:matchIndex]
+    res = recursive_citation_search(op_text, index , {match: match})
+
+    if res[:last_match].nil?
+    elsif res[:last_match][:title] == 'us'
+      #get volume and page number and run search for kase info
+      #52%
+      cit_str = op_text[res[:last_match][:last_match].begin(0)..index-1].gsub(/\(.{4,5}\)/, '').gsub(/\Wn\. \d+/, '').gsub(/\Wnn.*/, '')
+
+      vol = res[:last_match][:last_match]['vol']
+      page = cit_str.last_match(/(?<page>\d+)/)['page']
+
+      res = better_find_op(vol, page, match['judgeGuessFromMatchText'], {lm: match})
+
+    elsif res[:last_match][:title] == 'supra'
+      res = find_supra_match res[:last_match][:last_match], op_text, index, {match: match}
+    end
+
+    #add info to set_values hash
+    if res.class == BSON::Document
+      COUNTER[:bson]+=1
+      #set_values[:cit_to][:kase_id] = res[:_id]
+      #set_values[:cit_to][:op_index] = res[:opIndex]
+    elsif res.class == Mongo::Collection::View::Aggregation
+      COUNTER[:multi]+=1
+      #set_values[:cit_to][:multiple_matches] = res.map{|op| op[:frontend_url]}.uniq
+    elsif res.nil?
+      COUNTER[:nil]+=1
+      #set_values[:cit_to][:no_match] = true
+    end
+
+    ap COUNTER
+  end
+end
+
+def find_supra_match (last_match, op_text, index, extra_info)
+  #get case name ref
+  text = op_text[last_match.begin(0)-50...last_match.begin(0)]+'supra'
+	#case_name = text.match /(?<name>(([A-Z][a-z\.\-]+\s?)|v\.?\s?|of\s){1,}).?.?supra/
+	case_name = text.match /(?<name>(([A-Z][a-z\.\-]+\s?)|of\s){1,}).?.?supra/
+  case_name = case_name['name'].gsub(/See/,'').strip unless case_name.nil?
+
+  # search for first mention
+  idx = nil
+  if case_name.nil?
+    return nil
+  else
+    rgx_before = /#{case_name}[^;]{1,30}v\./
+    before_v = op_text.to_enum(:scan, rgx_before).map {Regexp.last_match.begin 0}
+    rgx_after = /v\.[^;]{1,30}#{case_name}/
+    after_v = op_text.to_enum(:scan, rgx_after).map {Regexp.last_match.begin 0}
+
+    idx = after_v.first if after_v.count>0 && before_v.count==0
+    idx = before_v.first if after_v.count==0 && before_v.count>0
+  end
+
+  #get first citation
+  if !idx.nil?
+    res = get_first_citation(op_text[idx, 100])
+
+    page = op_text[last_match.begin(0)..index].last_match(/\d+/)
+    page = page[0] if page
+    if res[:title]=='us' && page
+      return better_find_op(res[:match][:vol], page, extra_info[:match][:judgeGuessFromMatchText], {lm: extra_info[:match]})
+    else
+      return nil
+    end
+  else
+    return nil
+  end
+end
+
+def scdb_get_kase_from_citation
+  #check for kase name and cite from pin cite using scdb
+end
+
 
 #TODO 
 #(Mr. Justice Holmes, dissenting, in Southern Pacific Co. v. Jensen, 244 U. S. 205, 222)

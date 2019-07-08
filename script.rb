@@ -1,3 +1,4 @@
+COUNTER = Hash.new(0)
 require_relative 'global_variables.rb'
 require_relative 'keys.rb' #hide this file from git!
 require_relative 'custom_methods.rb' #hide this file from git!
@@ -21,7 +22,7 @@ require 'httparty'
 require 'awesome_print'
 require 'ruby-graphviz'
 
-#Mongo::Logger.logger.level = Logger::FATAL
+Mongo::Logger.logger.level = Logger::FATAL
 
 HEADERS = {headers: { "Authorization" => "Token #{CAP_API_KEY}" }} #set in keys.rb
 DB = Mongo::Client.new(['127.0.0.1:27017'], :database => 'cases') #set in keys.rb
@@ -179,66 +180,6 @@ def find_op_by_cit(vol, page)
   ap au
   ap type
   ap '-'*80
-end
-
-def better_find_op(vol, page, judge)
-  #returns best match op
-  #        nil if no match
-  #        array of res if multiples can't be narrowed
-  
-  vol = vol.to_i
-  page = page.to_i
-
-  op_pipeline = [
-    {
-      '$match': {
-        'volume.volume_number': vol
-      }
-    },
-    {
-      '$unwind': {
-        'path': '$casebody.data.opinions', 
-        'includeArrayIndex': 'opIndex'
-      }
-    }, {
-      '$match': {
-        '$and': [
-          {
-            'casebody.data.opinions.first_page': {
-              '$lte': page
-            }
-          }, {
-            'casebody.data.opinions.last_page': {
-              '$gte': page
-            }
-          }
-        ]
-      }
-    },
-  ]
-
-  results = DB[COL].aggregate(op_pipeline)
-
-  if results.count == 0
-    return nil
-  elsif results.count == 1
-    #TODO mark ones that seem wrong (like wrong judge etc)
-    return results.first
-  elsif results.count > 1
-
-    m_auth = results.select{|r|  !r['casebody']['data']['opinions']['author_formatted'].nil? && !judge.nil? && r['casebody']['data']['opinions']['author_formatted'] == judge.downcase.gsub(/[^a-z]/,'') }
-    m_diss = results.select{|r|  !r['casebody']['data']['opinions']['type'].nil? && r['casebody']['data']['opinions']['type'].match(/dissent/) }
-
-    if m_auth.count==1
-      return m_auth.first
-    end
-
-    if judge.nil? && m_diss.count==1
-      return m_diss.first
-    end
-    
-    return results
-  end
 end
 
 def new_new
@@ -525,5 +466,92 @@ def import_data_from_sheet
 	end
 end
 
-#get_citations_before_matches
-reject_some
+def migration_change_brandis_to_brandeis
+  pipeline = [
+    {
+      '$unwind': {
+        'path': '$casebody.data.opinions', 
+        'includeArrayIndex': 'opIndex'
+      }
+    }
+  ]
+
+  #DB[:ALL].aggregate(pipeline).each do |op|
+  #end
+end
+
+def better_find_op(vol, page, judge, extra={})
+  #returns best match op
+  #        nil if no match
+  #        array of res if multiples can't be narrowed
+  
+  vol = vol.to_i
+  page = page.to_i
+
+  op_pipeline = [
+    {
+      '$match': {
+        'volume.volume_number': vol
+      }
+    },
+    {
+      '$unwind': {
+        'path': '$casebody.data.opinions', 
+        'includeArrayIndex': 'opIndex'
+      }
+    }, {
+      '$match': {
+        '$and': [
+          {
+            'casebody.data.opinions.first_page': {
+              '$lte': page
+            }
+          }, {
+            'casebody.data.opinions.last_page': {
+              '$gte': page
+            }
+          }
+        ]
+      }
+    },
+  ]
+
+  results = DB[COL].aggregate(op_pipeline)
+
+  if results.count == 0
+    return nil
+  #elsif results.count == 1
+    #COUNTER[:one] +=1
+    #COUNTER[:one_auth_match] +=1
+    ##TODO mark ones that seem wrong (like wrong judge etc)
+    #return results.first
+  else
+  #elsif results.count > 1
+
+    #judge = "brandis" if judge=="brandeis"
+    #judge = "brandis" if judge=="marshall"
+    m_auth = results.select{|r|  !r['casebody']['data']['opinions']['author_formatted'].nil? && !judge.nil? && JaroWinkler.distance( r['casebody']['data']['opinions']['author_formatted'], judge.downcase.gsub(/[^a-z]/,'') ) > 0.9 }
+
+#JaroWinkler.jaro_distance("dissent", ii)
+
+    type_rgx = extra[:lm][:dissent] ? /dissent/ : /concur/
+    m_type = results.select{|r|  !r['casebody']['data']['opinions']['type'].nil? && r['casebody']['data']['opinions']['type'].match(type_rgx) }
+
+    if m_auth.count==1
+      COUNTER[:auth] +=1
+      return m_auth.first
+    end
+
+    if judge.nil? && m_type.count==1
+      COUNTER[:type] +=1
+      return m_type.first
+    end
+
+    return results
+  end
+end
+
+def better_find_kase(vol, page, judge, extra={})
+end
+
+get_citations_before_matches
