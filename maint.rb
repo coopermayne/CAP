@@ -261,8 +261,8 @@ end
 
 def import_scdb_data
   files = [
-  'Data/scdb.wustl/SCDB_2018_02_caseCentered_Citation(1946-2018).csv',
-  'Data/scdb.wustl/SCDB_Legacy_04_caseCentered_Citation(1791-1945).csv'
+    '../UCLA/Data/scdb.wustl/SCDB_2018_02_caseCentered_Citation(1946-2018).csv',
+    '../UCLA/Data/scdb.wustl/SCDB_Legacy_04_caseCentered_Citation(1791-1945).csv'
   ]
 
 	keys = {

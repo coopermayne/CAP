@@ -370,7 +370,7 @@ def add_citation_fields_to_scdb
       }
     }
 
-    ap DB[:scdb].update_one({_id: kase['_id']}, set_values)
+    ap DB[:scdb].update_one({_id: kase['_id']}, {'$set': set_values})
   end
 end
 
