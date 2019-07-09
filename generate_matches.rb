@@ -284,6 +284,7 @@ def get_citations_before_matches
 
     elsif res[:last_match][:title] == 'supra'
       res = find_supra_match res[:last_match][:last_match], op_text, index, {match: match}
+      #TODO update page and vol infor from this functions response
     end
 
     #add info to set_values hash
