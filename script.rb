@@ -550,5 +550,3 @@ def better_find_op(vol, page, judge, extra={})
     return results
   end
 end
-
-save_all_matches_to_spreadsheet
