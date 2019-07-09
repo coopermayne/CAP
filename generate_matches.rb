@@ -350,6 +350,22 @@ def find_supra_match (last_match, op_text, index, extra_info)
 end
 
 def scdb_get_kase_from_citation(vol, page)
+	pipeline = [
+		{
+			'$match': {
+				'citeDetails.vol': vol, 
+				'citeDetails.page': {
+					'$lte': page
+				}
+			}
+		}, {
+			'$sort': {
+				'citeDetails.page': -1
+			}
+		}
+	]
+
+  DB[:scdb].aggregate(pipeline).first
 end
 
 def add_citation_fields_to_scdb
@@ -365,8 +381,8 @@ def add_citation_fields_to_scdb
 
     set_values = {
       citeDetails: {
-        vol: matches[:vol],
-        page: matches[:page]
+        vol: matches[:vol].to_i,
+        page: matches[:page].to_i
       }
     }
 
@@ -374,12 +390,122 @@ def add_citation_fields_to_scdb
   end
 end
 
-def save_all_matches_to_spreadsheet
+def add_scdb_data
+  pipeline = [{
+    '$match': {
+      '$and': [
+        {
+          'cit_to.vol': {
+            '$exists': 1
+          }
+        }, {
+          'cit_to.page': {
+            '$exists': 1
+          }
+        }
+      ]
+    }
+  }]
+
   DB[:all_matches].aggregate(pipeline).each do |match|
-    
+    vol = match[:cit_to][:vol].to_i
+    page = match[:cit_to][:page].to_i
+
+    ap vol
+
+    res = scdb_get_kase_from_citation(vol, page)
+    next if res.nil?
+    ap res[:caseName]
+    set_values = {
+      'cit_to.scdb_id': res[:_id]
+    }
+    DB[:all_matches].update_one({_id: match['_id']}, {"$set": set_values})
   end
 end
 
+def save_all_matches_to_spreadsheet
+  #pipeline = [{'$match': {'cit_to': {'$exists': 1}}}]
+  pipeline = []
+  rows = DB[:all_matches].aggregate(pipeline).map do |match|
+
+    kase = DB[:ALL].find({_id: match[:kaseId]}).first
+    op = kase[:casebody][:data][:opinions][match[:opIndex]]
+    #scdb_id = match[:cit_to] && match[:cit_to][:scdb_id]
+    #scdb_kase = DB[:scdb].find({_id: scdb_id}).first
+    
+    begin
+      _kase = DB[:ALL].find({_id: match[:cit_to][:kase_id]}).first
+      _op = _kase[:casebody][:data][:opinions][match[:cit_to][:op_index]]
+    rescue
+      _kase = {}
+      _op = {}
+    end
+
+    _scdb_id = match[:cit_to] && match[:cit_to][:scdb_id]
+    _scdb_kase = DB[:scdb].find({_id: _scdb_id}).first
+
+    blurb = op['text'][match['matchIndex']-100..match['matchIndex']-1]+match['matchText']
+
+    ii = match['matchIndex']-500
+    ii = ii<0 ? 0 : ii
+    long_blurb = op['text'][ii..match['matchIndex']-1]+match['matchText']
+
+    {
+      #for potential updates
+      :_id => match['_id'],
+      
+      #kase info
+      :decision_date => kase['decision_date'],
+      :case_name => kase['name_abbreviation'],
+      :docket_number => kase['docket_number'],
+      :case_citation => kase['citations'].first['cite'],
+      :author => op['author'],
+      :author_formatted => op['author_formatted'],
+      :part_of_opinion => op['type'],
+
+      #type
+      :citation_type => match['cit_to']['citation_type'],
+      :id_match => match['id_match'],
+      :_diss => match['dissent'],
+      :_concur => match['concur'],
+
+      #cit case info
+      :_judge_from_scrape => match['judgeGuessFromMatchText'],
+      :_judge_from_match => _op && _op['author_formatted'],
+      :_vol => match['cit_to']['vol'],
+      :_page => match['cit_to']['page'],
+      :_citation => _kase && _kase['cite'],
+      :_case_name => _kase && _kase['name_abbreviation'],
+      :_scdb_kase_name => _scdb_kase && _scdb_kase['caseName'],
+      :_scdb_kase_cit => _scdb_kase && _scdb_kase['usCite'],
+
+      #blurb
+      :_blurb => blurb,
+      :_long_blurb => long_blurb,
+      :_matching_txt => match['matchText'],
+
+      :reject => match[:reject],
+      :multiple_matches => match[:cit_to][:multiple_matches],
+
+      :full_opinion => kase['frontend_url'],
+    }
+  end
+
+  fn = "/Users/coopermayne/Code/UCLA_Re/export/#{Time.now.to_i.to_s}_all_matches.csv"
+
+	rowid = 0
+	CSV.open(fn, 'w') do |csv|
+		rows.each do |hsh|
+			rowid += 1
+			if rowid == 1
+				csv << hsh.keys
+			else
+				ap hsh.values
+				csv << hsh.values
+			end
+		end
+	end
+end
 
 #TODO 
 #(Mr. Justice Holmes, dissenting, in Southern Pacific Co. v. Jensen, 244 U. S. 205, 222)

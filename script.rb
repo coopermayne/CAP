@@ -551,7 +551,4 @@ def better_find_op(vol, page, judge, extra={})
   end
 end
 
-#get_citations_before_matches
-#import_scdb_data
-add_citation_fields_to_scdb
-#scdb_get_kase_from_citation(346, 294)
+save_all_matches_to_spreadsheet
