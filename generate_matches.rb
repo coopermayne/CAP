@@ -115,6 +115,7 @@ end
 
 def recursive_citation_search(op_text, index, extra_info={})
   #take a string as input
+  #returns [match(match data), id_match(boolean)]
 
   patterns = [
     {title: 'us', rgx: /(?<vol>\d{2,3}).{1,2}U.{0,2}S[\.\,\s]/, count: 0},
@@ -232,20 +233,11 @@ def get_first_citation(input_string)
 end
 
 def get_citations_before_matches
+
   cs = Hash.new(0)
 
 	pipeline = [
     #for testing only
-    {
-      '$match': {
-        'reject': false
-      }
-    },
-    {
-      '$sample': {
-        'size': 1000
-      }
-    },
 		{
 			'$lookup': {
 				'from': 'ALL', 
@@ -258,12 +250,25 @@ def get_citations_before_matches
 
   results = Hash.new(0)
 
+  total_count = DB[:all_matches].aggregate(pipeline).count
+  ap total_count
+  count = 0
   DB[:all_matches].aggregate(pipeline).each do |match|
+    ap count
+    count += 1
+
+    set_values = {cit_to: {}} #for updating each match in db
+
     op_text = match[:kase].first[:casebody][:data][:opinions][match[:opIndex]][:text]
     index = match[:matchIndex]
     res = recursive_citation_search(op_text, index , {match: match})
 
+    set_values[:cit_to][:citation_type] = res[:last_match] && res[:last_match][:title]
+    set_values[:id_match] = res[:id_match]
+    set_values[:no_match_from_recursive_citation_search] = false
+
     if res[:last_match].nil?
+      set_values[:no_match_from_recursive_citation_search] = true
     elsif res[:last_match][:title] == 'us'
       #get volume and page number and run search for kase info
       #52%
@@ -271,6 +276,9 @@ def get_citations_before_matches
 
       vol = res[:last_match][:last_match]['vol']
       page = cit_str.last_match(/(?<page>\d+)/)['page']
+
+      set_values[:cit_to][:vol] = vol
+      set_values[:cit_to][:page] = page
 
       res = better_find_op(vol, page, match['judgeGuessFromMatchText'], {lm: match})
 
@@ -280,18 +288,27 @@ def get_citations_before_matches
 
     #add info to set_values hash
     if res.class == BSON::Document
-      COUNTER[:bson]+=1
-      #set_values[:cit_to][:kase_id] = res[:_id]
-      #set_values[:cit_to][:op_index] = res[:opIndex]
+      set_values[:find_CAP_data_response] = 'single'
+      set_values[:cit_to][:kase_id] = res[:_id]
+      set_values[:cit_to][:op_index] = res[:opIndex]
     elsif res.class == Mongo::Collection::View::Aggregation
-      COUNTER[:multi]+=1
-      #set_values[:cit_to][:multiple_matches] = res.map{|op| op[:frontend_url]}.uniq
+      set_values[:find_CAP_data_response] = 'multiple'
+
+      if res.count==1
+        set_values[:cit_to][:kase_id] = res.first[:_id]
+        set_values[:cit_to][:op_index] = res.first[:opIndex]
+      else
+        res_map = res.map{|op| op[:frontend_url]}.uniq
+        set_values[:cit_to][:multiple_matches] = res_map
+      end
+
     elsif res.nil?
-      COUNTER[:nil]+=1
-      #set_values[:cit_to][:no_match] = true
+      set_values[:find_CAP_data_response] = 'no match'
     end
 
-    ap COUNTER
+    ap set_values
+    DB[:all_matches].update_one({_id: match[:_id]},{'$set': set_values})
+    ap "done: #{((count.to_f/total_count.to_f)*100).round(1)}%"
   end
 end
 
@@ -322,7 +339,7 @@ def find_supra_match (last_match, op_text, index, extra_info)
 
     page = op_text[last_match.begin(0)..index].last_match(/\d+/)
     page = page[0] if page
-    if res[:title]=='us' && page
+    if res && res[:title]=='us' && page
       return better_find_op(res[:match][:vol], page, extra_info[:match][:judgeGuessFromMatchText], {lm: extra_info[:match]})
     else
       return nil
