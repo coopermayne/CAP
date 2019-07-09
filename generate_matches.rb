@@ -349,8 +349,35 @@ def find_supra_match (last_match, op_text, index, extra_info)
   end
 end
 
-def scdb_get_kase_from_citation
+def scdb_get_kase_from_citation(vol, page)
+end
+
+def add_citation_fields_to_scdb
   #check for kase name and cite from pin cite using scdb
+
+  DB[:scdb].find.each do |kase|
+    
+    rgx = /(?<vol>\d+)\sU.{0,2}S\.?\s(?<page>\d+)/
+
+    next if kase['usCite'].nil?
+    matches = kase['usCite'].match rgx
+    next if matches.nil?
+
+    set_values = {
+      citeDetails: {
+        vol: matches[:vol],
+        page: matches[:page]
+      }
+    }
+
+    ap DB[:scdb].update_one({_id: kase['_id']}, set_values)
+  end
+end
+
+def save_all_matches_to_spreadsheet
+  DB[:all_matches].aggregate(pipeline).each do |match|
+    
+  end
 end
 
 
