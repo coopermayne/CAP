@@ -550,3 +550,5 @@ def better_find_op(vol, page, judge, extra={})
     return results
   end
 end
+
+redo_supras

@@ -226,10 +226,7 @@ def get_first_citation(input_string)
     }
     sorted_patterns << h
   end
-
-  sorted_patterns.reject{|h| !h[:idx].nil?}.sort_by!{|h| h[:idx]}
-
-  return sorted_patterns.first
+  return sorted_patterns.reject{|h| h[:idx].nil?}.sort_by{|h| h[:idx]}.first
 end
 
 def get_citations_before_matches
@@ -284,7 +281,6 @@ def get_citations_before_matches
 
     elsif res[:last_match][:title] == 'supra'
       res = find_supra_match res[:last_match][:last_match], op_text, index, {match: match}
-      #TODO update page and vol infor from this functions response
     end
 
     #add info to set_values hash
@@ -339,6 +335,43 @@ def find_supra_match (last_match, op_text, index, extra_info)
     res = get_first_citation(op_text[idx, 100])
 
     page = op_text[last_match.begin(0)..index].last_match(/\d+/)
+    page = page[0] if page
+    if res && res[:title]=='us' && page
+      return better_find_op(res[:match][:vol], page, extra_info[:match][:judgeGuessFromMatchText], {lm: extra_info[:match]})
+    else
+      return nil
+    end
+  else
+    return nil
+  end
+end
+
+def find_supra_match2 (last_match, op_text, index, extra_info)
+  #get case name ref
+  text = op_text[last_match.begin(0)-50...last_match.begin(0)]+'supra'
+	#case_name = text.match /(?<name>(([A-Z][a-z\.\-]+\s?)|v\.?\s?|of\s){1,}).?.?supra/
+	case_name = text.match /(?<name>(([A-Z][a-z\.\-]+\s?)|of\s){1,}).?.?supra/
+  case_name = case_name['name'].gsub(/See/,'').strip unless case_name.nil?
+
+  # search for first mention
+  idx = nil
+  if case_name.nil?
+    return nil
+  else
+    rgx_before = /#{case_name}[^;]{1,30}v\./
+    before_v = op_text.to_enum(:scan, rgx_before).map {Regexp.last_match.begin 0}
+    rgx_after = /v\.[^;]{1,30}#{case_name}/
+    after_v = op_text.to_enum(:scan, rgx_after).map {Regexp.last_match.begin 0}
+
+    idx = after_v.first if after_v.count>0 && before_v.count==0
+    idx = before_v.first if after_v.count==0 && before_v.count>0
+  end
+
+  #get first citation
+  if !idx.nil?
+    res = get_first_citation(op_text[idx, 100])
+
+    page = op_text[last_match.begin(0), 50].last_match(/\d+/)
     page = page[0] if page
     if res && res[:title]=='us' && page
       return better_find_op(res[:match][:vol], page, extra_info[:match][:judgeGuessFromMatchText], {lm: extra_info[:match]})
@@ -506,6 +539,72 @@ def save_all_matches_to_spreadsheet
 			end
 		end
 	end
+end
+
+def redo_supras
+  #messed up the subefore_matches
+
+	pipeline = [
+    {
+      '$match': {
+        'cit_to.citation_type': 'supra'
+      }
+    },
+		{
+			'$lookup': {
+				'from': 'ALL', 
+				'localField': 'kaseId', 
+				'foreignField': '_id', 
+				'as': 'kase'
+			}
+		}
+	]
+
+  DB[:all_matches].aggregate(pipeline).each do |match|
+    set_values = {cit_to: {}} #for updating each match in db
+
+    op_text = match[:kase].first[:casebody][:data][:opinions][match[:opIndex]][:text]
+    index = match[:matchIndex]
+    res = recursive_citation_search(op_text, index , {match: match})
+
+    set_values[:cit_to][:citation_type] = res[:last_match] && res[:last_match][:title]
+    set_values[:id_match] = res[:id_match]
+    set_values[:no_match_from_recursive_citation_search] = false
+
+    res2 = find_supra_match2(res[:last_match][:last_match], op_text, index, {match: match})
+
+    distance = index - res[:last_match][:last_match].begin(0)
+    set_values[:cit_to][:distance] = distance
+
+    res = find_supra_match2(res[:last_match][:last_match], op_text, index, {match: match})
+
+    #add info to set_values hash
+    if res.class == BSON::Document
+      set_values[:find_CAP_data_response] = 'single'
+      set_values[:cit_to][:kase_id] = res[:_id]
+      set_values[:cit_to][:op_index] = res[:opIndex]
+
+    elsif res.class == Mongo::Collection::View::Aggregation
+      set_values[:find_CAP_data_response] = 'multiple'
+
+      if res.count==1
+        set_values[:cit_to][:kase_id] = res.first[:_id]
+        set_values[:cit_to][:op_index] = res.first[:opIndex]
+      else
+        res_map = res.map{|op| op[:frontend_url]}.uniq
+        set_values[:cit_to][:multiple_matches] = res_map
+      end
+
+    elsif res.nil?
+      set_values[:find_CAP_data_response] = 'no match'
+    end
+
+    ap DB[:all_matches].update_one({_id: match[:_id]},{'$set': set_values})
+  end
+end
+
+def add_distance_to_cit_to
+
 end
 
 #TODO 
