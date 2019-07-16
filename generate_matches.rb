@@ -483,6 +483,21 @@ def save_all_matches_to_spreadsheet
     ii = match['matchIndex']-500
     ii = ii<0 ? 0 : ii
     long_blurb = op['text'][ii..match['matchIndex']-1]+match['matchText']
+    
+    secs = op['text'].split('\n')
+    paragraph = op_text[0..diss_match.begin(0)-1].split("\n").last + diss_match[0] + op_text[diss_match.end(0)..-1].split("\n").first
+
+      #:_scdb_kase_name1 => _scdb_kase_name1,
+      #:_scdb_kase_cit1 => _scdb_kase_cit1,
+      #:_scdb_kase_name2 => _scdb_kase && _scdb_kase['caseName'],
+      #:_scdb_kase_cit2 => _scdb_kase && _scdb_kase['usCite'],
+
+    if _scdb_kase
+      binding.pry
+    else
+      _scdb_kase_cit1 = nil
+      _scdb_kase_name1 = nil
+    end
 
     {
       #for potential updates
@@ -510,16 +525,20 @@ def save_all_matches_to_spreadsheet
       :_page => match['cit_to']['page'],
       :_citation => _kase && _kase['cite'],
       :_case_name => _kase && _kase['name_abbreviation'],
-      :_scdb_kase_name => _scdb_kase && _scdb_kase['caseName'],
-      :_scdb_kase_cit => _scdb_kase && _scdb_kase['usCite'],
+      :_scdb_kase_name1 => _scdb_kase_name1,
+      :_scdb_kase_cit1 => _scdb_kase_cit1,
+      :_scdb_kase_name2 => _scdb_kase && _scdb_kase['caseName'],
+      :_scdb_kase_cit2 => _scdb_kase && _scdb_kase['usCite'],
 
       #blurb
-      :_blurb => blurb,
-      :_long_blurb => long_blurb,
-      :_matching_txt => match['matchText'],
+      :blurb => blurb,
+      :long_blurb => long_blurb,
+      :paragraph => paragraph,
+      :matching_txt => match['matchText'],
 
       :reject => match[:reject],
       :multiple_matches => match[:cit_to][:multiple_matches],
+      :distance => match[:cit_to][:distance],
 
       :full_opinion => kase['frontend_url'],
     }
@@ -605,7 +624,109 @@ end
 
 def add_distance_to_cit_to
 
+	pipeline = [
+    #for testing only
+    {
+      '$match': {
+        'cit_to.citation_type': 'us'
+      }
+    },
+		{
+			'$lookup': {
+				'from': 'ALL', 
+				'localField': 'kaseId', 
+				'foreignField': '_id', 
+				'as': 'kase'
+			}
+		}
+	]
+
+  DB[:all_matches].aggregate(pipeline).each do |match|
+
+    op_text = match[:kase].first[:casebody][:data][:opinions][match[:opIndex]][:text]
+    index = match[:matchIndex]
+    res = recursive_citation_search(op_text, index , {match: match})
+
+    distance = index - res[:last_match][:last_match].begin(0)
+    #add info to set_values hash
+
+    set_values = {'cit_to.distance': distance}
+    ap DB[:all_matches].update_one({_id: match[:_id]},{'$set': set_values})
+  end
 end
+
+def get_answers
+  pipeline = [
+    {
+      '$match': {
+        'reject': false, 
+        'dissent': true, 
+        'cit_to.citation_type': {
+          '$in': [
+            'us', 'supra'
+          ]
+        }
+      }
+    },
+    #{
+      #'$sample': { 'size': 1000}
+    #}
+  ]
+
+  g = Hash.new(0)
+  g_wsc = Hash.new(0)
+
+  DB[:all_matches].aggregate(pipeline).each do |match|
+    kase = DB[:ALL].find({_id: match[:kaseId]}).first
+    op = kase[:casebody][:data][:opinions][match[:opIndex]]
+
+    begin
+      _kase = DB[:ALL].find({_id: match[:cit_to][:kase_id]}).first
+      _op = _kase[:casebody][:data][:opinions][match[:cit_to][:op_index]]
+    rescue
+      next
+    end
+
+    judge = match['judgeGuessFromMatchText'] || _op['author_formatted']
+
+    g[judge] += 1
+
+    g_wsc[judge]+=1 unless judge == op['author_formatted']
+
+  end
+
+  g = g.sort_by{|k,v| v}.reverse.map{|item| item[2]=g_wsc[item[0]]; item}
+
+  fn = "/Users/coopermayne/Code/UCLA_Re/export/#{Time.now.to_i.to_s}_dissenters_with_and_without_self_cites.csv"
+
+  CSV.open(fn, 'w') do |csv|
+    g.each do |row|
+      csv << row
+    end
+  end
+end
+
+def count_term_occurance(term)
+  pipeline = [
+    #{'$sample': {'size': 1000}},
+    {
+      '$unwind': {
+        'path': '$casebody.data.opinions', 
+        'includeArrayIndex': 'opIndex', 
+        'preserveNullAndEmptyArrays': false
+      }
+    }
+  ]
+  count = 0
+  DB[:ALL].aggregate(pipeline).each do |op|
+    op_text = op['casebody']['data']['opinions']['text']
+    matches = op_text.to_enum(:scan, term){Regexp.last_match}
+    count += matches.count
+    ap count
+  end
+
+end
+
 
 #TODO 
 #(Mr. Justice Holmes, dissenting, in Southern Pacific Co. v. Jensen, 244 U. S. 205, 222)
@@ -615,3 +736,5 @@ end
 
 #TODO 
 #write function to guess at supra citaitons
+#
+
