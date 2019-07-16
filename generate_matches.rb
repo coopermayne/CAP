@@ -484,16 +484,38 @@ def save_all_matches_to_spreadsheet
     ii = ii<0 ? 0 : ii
     long_blurb = op['text'][ii..match['matchIndex']-1]+match['matchText']
     
-    secs = op['text'].split('\n')
-    paragraph = op_text[0..diss_match.begin(0)-1].split("\n").last + diss_match[0] + op_text[diss_match.end(0)..-1].split("\n").first
+    secs = op['text'].split("\n")
+    end_idx = 0
+    paragraph = nil
+    secs.each do |sec|
+      start_idx = end_idx
+      end_idx += 1 # for the \n
+      end_idx += sec.length
 
-      #:_scdb_kase_name1 => _scdb_kase_name1,
-      #:_scdb_kase_cit1 => _scdb_kase_cit1,
-      #:_scdb_kase_name2 => _scdb_kase && _scdb_kase['caseName'],
-      #:_scdb_kase_cit2 => _scdb_kase && _scdb_kase['usCite'],
+      if match['matchIndex'] >= start_idx && match['matchIndex'] < end_idx
+        paragraph = sec
+      end
+    end
+    binding.pry if paragraph.nil?
 
     if _scdb_kase
-      binding.pry
+      vol = match['cit_to']['vol'].to_i
+      page = match['cit_to']['page'].to_i
+      res = scdb_get_kase_from_citation(vol, page-1)
+      if res.nil?
+        _scdb_kase_cit1 = nil
+        _scdb_kase_name1 = nil
+      else
+        if res['_id'] == _scdb_kase['_id']
+          _scdb_kase_cit1 = nil
+          _scdb_kase_name1 = nil
+        else
+          _scdb_kase_cit1 = res['usCite']
+          _scdb_kase_name1 = res['caseName'] 
+          COUNTER[:diff_scdb] += 1
+          ap COUNTER
+        end
+      end
     else
       _scdb_kase_cit1 = nil
       _scdb_kase_name1 = nil
@@ -525,10 +547,10 @@ def save_all_matches_to_spreadsheet
       :_page => match['cit_to']['page'],
       :_citation => _kase && _kase['cite'],
       :_case_name => _kase && _kase['name_abbreviation'],
-      :_scdb_kase_name1 => _scdb_kase_name1,
-      :_scdb_kase_cit1 => _scdb_kase_cit1,
-      :_scdb_kase_name2 => _scdb_kase && _scdb_kase['caseName'],
-      :_scdb_kase_cit2 => _scdb_kase && _scdb_kase['usCite'],
+      :_scdb_name1 => _scdb_kase_name1,
+      :_scdb_cit1 => _scdb_kase_cit1,
+      :_scdb_name2 => _scdb_kase && _scdb_kase['caseName'],
+      :_scdb_cit2 => _scdb_kase && _scdb_kase['usCite'],
 
       #blurb
       :blurb => blurb,
