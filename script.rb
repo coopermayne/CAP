@@ -30,6 +30,7 @@ COL = :ALL #default collection
 
 require_relative 'maint.rb' #just has some code req to get database.. can be thrown away...
 
+#
 #COUNT ALL US CITATIONS
 def collect_citations
 	id_count = 0
@@ -549,6 +550,9 @@ def better_find_op(vol, page, judge, extra={})
 
     return results
   end
-end 
+end
 
-save_all_matches_to_spreadsheet
+#count_term_occurance(/my\sdissent\sin/) ~500 results
+#count_term_occurance(/\w+\'s\sdissent\sin/) ~500 results
+#count_term_occurance(/his\sdissent\sin/) ~234 results
+count_term_occurance(/The\swhite\srace\sdeems\sitself\sto\sbe\sthe\sdominant\srace/) 

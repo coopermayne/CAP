@@ -458,10 +458,11 @@ def add_scdb_data
 end
 
 def save_all_matches_to_spreadsheet
-  #pipeline = [{'$match': {'cit_to': {'$exists': 1}}}]
   pipeline = []
+  COUNTER[:ttotal] = (23.2*1000).to_i
   rows = DB[:all_matches].aggregate(pipeline).map do |match|
-
+    COUNTER[:match_count] +=1
+    ap ((COUNTER[:match_count].to_f/COUNTER[:ttotal].to_f)*100).round 2
     kase = DB[:ALL].find({_id: match[:kaseId]}).first
     op = kase[:casebody][:data][:opinions][match[:opIndex]]
     #scdb_id = match[:cit_to] && match[:cit_to][:scdb_id]
@@ -512,8 +513,6 @@ def save_all_matches_to_spreadsheet
         else
           _scdb_kase_cit1 = res['usCite']
           _scdb_kase_name1 = res['caseName'] 
-          COUNTER[:diff_scdb] += 1
-          ap COUNTER
         end
       end
     else
@@ -756,7 +755,25 @@ end
 # Olmstead v. United States, (dissent)
     # maybe do a regex with the 'v'
 
-#TODO 
-#write function to guess at supra citaitons
-#
+#generate_matches.rb
+generate_dissent_and_concurrences_matches
+clean_judge_name(dirty_name)
+guess_scotus_judge
+reject_some
+recursive_citation_search(op_text, index, extra_info={})
+get_first_citation(input_string)
+get_citations_before_matches
+find_supra_match (last_match, op_text, index, extra_info)
+find_supra_match2 (last_match, op_text, index, extra_info)
+scdb_get_kase_from_citation(vol, page)
+add_citation_fields_to_scdb
+add_scdb_data
+save_all_matches_to_spreadsheet
+redo_supras
+add_distance_to_cit_to
+get_answers
 
+
+
+#script.rb
+better_find_op(vol, page, judge, extra={})
