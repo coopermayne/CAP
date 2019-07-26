@@ -555,4 +555,4 @@ end
 #count_term_occurance(/my\sdissent\sin/) ~500 results
 #count_term_occurance(/\w+\'s\sdissent\sin/) ~500 results
 #count_term_occurance(/his\sdissent\sin/) ~234 results
-count_term_occurance(/The\swhite\srace\sdeems\sitself\sto\sbe\sthe\sdominant\srace/) 
+#count_term_occurance(/The\swhite\srace\sdeems\sitself\sto\sbe\sthe\sdominant\srace/) 
