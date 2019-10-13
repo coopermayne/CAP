@@ -552,7 +552,116 @@ def better_find_op(vol, page, judge, extra={})
   end
 end
 
+
+def most_cited
+  authors = Hash.new(0)
+  authors_minus_self_cites = Hash.new(0)
+  op = Hash.new(0)
+  cases = Hash.new(0)
+
+  fn = "data_20190730161901.csv"
+
+	csv_text = File.read(fn)
+	csv = CSV.parse(csv_text, :headers => true)
+	csv.each do |row|
+    authors[row["Judge cited"]] += 1
+
+    if row["Judge cited"] != row['author_formatted']
+      authors_minus_self_cites[row["Judge cited"]] += 1
+    end
+
+    if row['_citation'] && row['Judge cited'] && row['_case_name']
+      op_id = row['_citation'].strip + "_" + row['Judge cited'].strip + "_" + row['_case_name'].strip
+      op[op_id] += 1
+    end
+
+    if row['_citation'] && row['_case_name']
+      cases[row['_citation'].strip + "_" + row['_case_name']] += 1
+    end
+
+  end
+
+  cases = cases.sort_by{|k,v| v}.reverse
+  op = op.sort_by{|k,v| v}.reverse
+  authors_minus_self_cites = authors_minus_self_cites.sort_by{|k,v| v}.reverse
+
+	rowid = 0
+  CSV.open('authors.csv', 'w') do |csv|
+    if rowid==0
+      csv << ['name', 'cit_minus_self', 'citations']
+    end
+	  rowid += 1
+
+		authors_minus_self_cites.each do |row|
+      fw = row.push authors[row.first]
+      csv << fw
+		end
+	end
+
+	rowid = 0
+  CSV.open('opinions.csv', 'w') do |csv|
+    if rowid==0
+      csv << ['cit', 'citations']
+    end
+
+	  rowid += 1
+
+		op.each do |row|
+      stuff = row.first.split('_')
+      au = stuff[1]
+      name = stuff[2]
+      csv << ["#{name} (#{au})",row.last]
+		end
+	end
+end
+
+def other_stats
+
+  for_print = []
+
+  fn = "data_20190730161901.csv"
+
+	csv_text = File.read(fn)
+	csv = CSV.parse(csv_text, :headers => true)
+  asdf = []
+
+	csv.each do |row|
+    next if row['author_formatted'].nil? || row['Judge cited'].nil?
+
+    asdf << [row['author_formatted'], row['Judge cited']]
+  end
+
+  asdf_g = asdf.group_by{|item| item.first }
+  asdf_g = asdf_g.map{|item| [item.first, item.last.map{|x| x.last}]}
+
+  asdf_g.each do |item|
+    histo = Hash.new(0)
+    item.last.each{|x| histo[x] +=1 }
+    histo_s = histo.sort_by{|k,v| v }.reverse
+    histo_s = histo_s.map{|item| {item.first => item.last}}
+    for_print << {item.first => histo_s}
+  end
+
+  for_print = for_print.sort_by{|item| item.keys.first}
+
+  ans = ""
+  for_print.each do |item|
+    ans += item.keys.first
+    ans += "===>>>>"
+    ans += item[item.keys.first].to_s
+    ans += "\n"
+  end
+
+  binding.pry
+
+  #fJson = File.open("temp.json","w")
+  #fJson.write(for_print.to_json)
+  #fJson.close
+end 
+other_stats
+
 #count_term_occurance(/my\sdissent\sin/) ~500 results
 #count_term_occurance(/\w+\'s\sdissent\sin/) ~500 results
 #count_term_occurance(/his\sdissent\sin/) ~234 results
+
 #count_term_occurance(/The\swhite\srace\sdeems\sitself\sto\sbe\sthe\sdominant\srace/) 

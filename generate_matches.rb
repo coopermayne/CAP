@@ -748,6 +748,27 @@ def count_term_occurance(term)
 
 end
 
+def citations_inside_parens
+  # go back and fill in citation info for citations inside parenthesis
+  # seems to be about 1000 records 
+
+  pipeline = [] 
+  DB[:all_matches].aggregate(pipeline).each do |match|
+    ap match['_id']
+    binding.pry
+    #ap match['']
+    COUNTER[:tt]+=1
+    match_text = match['matchText']
+    if match_text.match /\d{1,3}\sU/
+    #if match_text.match /[Ss]upra/
+      COUNTER[:ttc]+=1
+      ap match['_id']
+      ap match_text
+    end
+  end
+
+end
+
 
 #TODO 
 #(Mr. Justice Holmes, dissenting, in Southern Pacific Co. v. Jensen, 244 U. S. 205, 222)
