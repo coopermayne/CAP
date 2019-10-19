@@ -557,62 +557,99 @@ def most_cited
   authors = Hash.new(0)
   authors_minus_self_cites = Hash.new(0)
   op = Hash.new(0)
+  op_minus_self_cite = Hash.new(0)
   cases = Hash.new(0)
 
-  fn = "data_20190730161901.csv"
+  fn = "data_20191019.csv"
 
 	csv_text = File.read(fn)
 	csv = CSV.parse(csv_text, :headers => true)
+
 	csv.each do |row|
-    authors[row["Judge cited"]] += 1
 
-    if row["Judge cited"] != row['author_formatted']
-      authors_minus_self_cites[row["Judge cited"]] += 1
+    next unless row['combined'] && row['_citation'] && row['_case_name']
+     
+    authors[row["combined"]] += 1
+
+    op_id = [
+      row['combined'].strip,
+      row['_citation'].strip,
+      row['_case_name'].strip,
+      row['_diss'],
+      row['_concur']
+    ].join('_')
+
+    op[op_id] += 1
+
+
+    if row["combined"] != row['author_formatted']
+      #only count if they are citing someone else
+      authors_minus_self_cites[row["combined"]] += 1
+
+      op_minus_self_cite[op_id] += 1
     end
 
-    if row['_citation'] && row['Judge cited'] && row['_case_name']
-      op_id = row['_citation'].strip + "_" + row['Judge cited'].strip + "_" + row['_case_name'].strip
-      op[op_id] += 1
-    end
-
-    if row['_citation'] && row['_case_name']
-      cases[row['_citation'].strip + "_" + row['_case_name']] += 1
-    end
+    cases[row['_citation'].strip + "_" + row['_case_name']] += 1
 
   end
 
   cases = cases.sort_by{|k,v| v}.reverse
   op = op.sort_by{|k,v| v}.reverse
-  authors_minus_self_cites = authors_minus_self_cites.sort_by{|k,v| v}.reverse
+  authors = authors.sort_by{|k,v| v}.reverse
+  authors_minus_self_cites = authors_minus_self_cites
 
-	rowid = 0
+  rowid = 0
   CSV.open('authors.csv', 'w') do |csv|
     if rowid==0
-      csv << ['name', 'cit_minus_self', 'citations']
+      csv << ['name', 'citations', 'citations_minus_self_cite']
     end
-	  rowid += 1
+    rowid += 1
 
-		authors_minus_self_cites.each do |row|
-      fw = row.push authors[row.first]
-      csv << fw
-		end
-	end
+    authors.each do |row|
+      csv << [row.first, row.last, authors_minus_self_cites[row.first]]
+    end
+  end
 
-	rowid = 0
+  rowid = 0
   CSV.open('opinions.csv', 'w') do |csv|
     if rowid==0
-      csv << ['cit', 'citations']
+      csv << ['citation', 'case_name', 'author', 'type', 'citations_count', 'citations_count_minus_self_cite']
     end
 
-	  rowid += 1
+    rowid += 1
 
-		op.each do |row|
+    op.each do |row|
       stuff = row.first.split('_')
-      au = stuff[1]
-      name = stuff[2]
-      csv << ["#{name} (#{au})",row.last]
-		end
-	end
+
+      author = stuff[0]
+      citation = stuff[1]
+      case_name = stuff[2]
+      dis = stuff[3]=="TRUE"
+      concur = stuff[4]=="TRUE"
+      citations_count = row.last
+      citations_count_minus_self_cite = op_minus_self_cite[row.first]
+
+      if dis && concur
+        type = "concurring-in-part-dissenting-in-part"
+      else
+        if dis
+          type = "dissent"
+        elsif concur
+          type = "concurrence"
+        end
+      end
+
+      csv << [
+        citation,
+        case_name,
+        author,
+        type,
+        citations_count,
+        citations_count_minus_self_cite
+      ]
+      
+    end
+  end
 end
 
 def other_stats
@@ -626,9 +663,9 @@ def other_stats
   asdf = []
 
 	csv.each do |row|
-    next if row['author_formatted'].nil? || row['Judge cited'].nil?
+    next if row['author_formatted'].nil? || row['combined'].nil?
 
-    asdf << [row['author_formatted'], row['Judge cited']]
+    asdf << [row['author_formatted'], row['combined']]
   end
 
   asdf_g = asdf.group_by{|item| item.first }
@@ -658,10 +695,5 @@ def other_stats
   #fJson.write(for_print.to_json)
   #fJson.close
 end 
-other_stats
 
-#count_term_occurance(/my\sdissent\sin/) ~500 results
-#count_term_occurance(/\w+\'s\sdissent\sin/) ~500 results
-#count_term_occurance(/his\sdissent\sin/) ~234 results
-
-#count_term_occurance(/The\swhite\srace\sdeems\sitself\sto\sbe\sthe\sdominant\srace/) 
+most_cited
