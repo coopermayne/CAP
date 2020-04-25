@@ -558,6 +558,7 @@ def most_cited
   authors_minus_self_cites = Hash.new(0)
   op = Hash.new(0)
   op_minus_self_cite = Hash.new(0)
+  op_cited_by_maj = Hash.new(0)
   cases = Hash.new(0)
 
   fn = "data_20191019.csv"
@@ -589,6 +590,10 @@ def most_cited
       op_minus_self_cite[op_id] += 1
     end
 
+    if row['part_of_opinion'] == 'majority'
+      op_cited_by_maj[op_id] += 1
+    end
+
     cases[row['_citation'].strip + "_" + row['_case_name']] += 1
 
   end
@@ -613,7 +618,7 @@ def most_cited
   rowid = 0
   CSV.open('opinions.csv', 'w') do |csv|
     if rowid==0
-      csv << ['citation', 'case_name', 'author', 'type', 'citations_count', 'citations_count_minus_self_cite']
+      csv << ['citation', 'case_name', 'author', 'type', 'citations_count', 'citations_count_minus_self_cite', 'citations_by_maj']
     end
 
     rowid += 1
@@ -628,6 +633,7 @@ def most_cited
       concur = stuff[4]=="TRUE"
       citations_count = row.last
       citations_count_minus_self_cite = op_minus_self_cite[row.first]
+      citations_by_maj = op_cited_by_maj[row.first]
 
       if dis && concur
         type = "concurring-in-part-dissenting-in-part"
@@ -645,7 +651,8 @@ def most_cited
         author,
         type,
         citations_count,
-        citations_count_minus_self_cite
+        citations_count_minus_self_cite,
+        citations_by_maj
       ]
       
     end
@@ -656,14 +663,14 @@ def other_stats
 
   for_print = []
 
-  fn = "data_20190730161901.csv"
+  fn = "data_20191019.csv"
 
 	csv_text = File.read(fn)
 	csv = CSV.parse(csv_text, :headers => true)
   asdf = []
 
 	csv.each do |row|
-    next if row['author_formatted'].nil? || row['combined'].nil?
+    next unless row['author_formatted'] && row['combined']
 
     asdf << [row['author_formatted'], row['combined']]
   end
@@ -679,21 +686,33 @@ def other_stats
     for_print << {item.first => histo_s}
   end
 
-  for_print = for_print.sort_by{|item| item.keys.first}
+  #for_print = for_print.sort_by{|item| item.keys.first}
 
-  ans = ""
-  for_print.each do |item|
-    ans += item.keys.first
-    ans += "===>>>>"
-    ans += item[item.keys.first].to_s
-    ans += "\n"
-  end
-
-  binding.pry
+  #ans = ""
+  #for_print.each do |item|
+    #ans += item.keys.first
+    #ans += "===>>>>"
+    #ans += item[item.keys.first].to_s
+    #ans += "\n"
+  #end
 
   #fJson = File.open("temp.json","w")
   #fJson.write(for_print.to_json)
   #fJson.close
+
+  rowid=0
+  CSV.open('who_who.csv', 'w') do |csv|
+    if rowid==0
+      csv << ['judge', 'judge_cited', 'count']
+    end
+
+    for_print.each do |row|
+      row.values.first.each do |rowd|
+        next if rowd.first.last < 2
+        csv << [row.first.first, rowd.first.first, rowd.first.last]
+      end
+    end
+  end
 end 
 
 most_cited
